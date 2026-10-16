@@ -46,7 +46,7 @@ Result handling (all names normalized; a name is **in scope** when it equals or 
 
 Enrichment never increases depth and never creates further tasks. No source is ever asked about an address or name the engine did not reach through these rules: no neighbour addresses, no covering or adjacent prefixes, no names from out-of-scope certificates.
 
-Deduplication: one asset per id. A relationship is identified by `(subject, predicate, object, seed)`; repeated observations append evidence ids. The asset's **path** is the first relationship chain that reached it (BFS order, so shortest).
+Deduplication: one task per `(source, query)` per run, whichever seed reached it first (an address reached from a domain seed and a prefix seed is queried once). One asset per id. A relationship is identified by `(subject, predicate, object, seed)`; repeated observations append evidence ids. The asset's **path** is the first relationship chain that reached it (BFS order, so shortest).
 
 Limits: when recording a new hostname or ip would exceed `max_hostnames`/`max_addresses`, it is not recorded, its tasks are not created, and a `Truncation` is added/incremented. `max_queries` and `max_seconds` stop the run with remaining tasks marked `skipped` and a `Truncation`. A truncated run still **completes** (status `complete`, `truncated` non-empty) so its findings are usable; the UI and every report show the truncation prominently. Source errors are counted per source and listed as `source_failures` in reports.
 
@@ -93,11 +93,13 @@ For each candidate, against the run's snapshot, first rule that applies:
 
 ## 5. Flags
 
-`conflict`, `inventory_match_indeterminate`, `stale_evidence` (every evidence item for the asset has `valid_to` before the run's completion time, e.g. a hostname seen only in expired certificates), `no_resolution` (hostname with no DNS address), `source_error` (a source call about this asset failed), `potential_vulns` (InternetDB listed vulns), `truncated_run` (the run hit a limit).
+`conflict`, `inventory_match_indeterminate`, `stale_evidence` (the asset has at least one `ok` observation from ct/dns/internetdb, and every such observation has a `valid_to` before the run's completion time; observations without `valid_to`, such as DNS answers, count as current; seed evidence and no_record/error results are ignored), `no_resolution` (a DNS query for the hostname was made and returned no_record; hostnames recorded only from InternetDB are never resolved and do not get this flag), `source_error` (a source call about this asset failed), `potential_vulns` (InternetDB listed vulns), `truncated_run` (the run hit a limit).
+
+DNS evidence has `valid_from`/`valid_to` = None (the TTL stays in `data`). RDAP and InternetDB evidence also have no validity period.
 
 ## 6. Rank
 
-`rank = queue_weight + 0.1 × distinct_sources + (0.2 if potential_vulns) + (0.1 if open ports reported) − (0.3 if stale_evidence)`, queue weights `new` 3, `unexplained` 2, `third_party` 1, `known` 0. Findings are listed rank-descending, then by value.
+`rank = queue_weight + 0.1 × distinct_sources + (0.2 if potential_vulns) + (0.1 if open ports reported) − (0.3 if stale_evidence)`, where `distinct_sources` counts the distinct sources among the asset's `ok` evidence (excluding `scope`); queue weights `new` 3, `unexplained` 2, `third_party` 1, `known` 0. Findings are listed rank-descending, then by value.
 
 ## 7. Reports
 
@@ -105,7 +107,7 @@ All three formats contain the same finding ids, queues and assessments.
 
 - **JSON** (`averiguao-<run8>.json`): `{"run": {id, status, label, created_at, finished_at, config, approval refs, inventory_snapshot {id, as_of, label, entry_count}, truncated, out_of_scope, source_failures, query_count, coverage_summary}, "seeds", "assets", "evidence", "relationships", "assertions", "inventory_matches", "findings", "coverage"}`. Source of truth.
 - **CSV** (`averiguao-<run8>.csv`): one row per finding, columns `finding_id, asset_id, asset_type, value, queue, role, inventory_match, match_rule, inventory_entry, ownership, ownership_value, operational_control, operational_control_value, hosting, hosting_value, service_association, seed_id, seed_path, evidence_ids, first_observed, last_observed, flags, ports, vulns, rank`. Lists are `;`-joined. **Every** cell that begins with `=`, `+`, `-`, `@`, tab or carriage return is prefixed with `'`.
-- **Markdown** (`averiguao-<run8>.md`): run header (seeds, approval refs, snapshot, limits), a warning block for truncation and source failures, counts by queue, top 20 `new` and `unexplained` by rank, third-party dependencies, conflicts, stale evidence, then one concise evidence path per listed finding (`seed:1 example.com → [CT ev:…] staging.example.com → [DNS ev:…] 198.51.100.9`). Escape Markdown control characters in all source-derived text.
+- **Markdown** (`averiguao-<run8>.md`): every finding id appears (an "All findings" table at the end lists id, value, queue, role for every finding). Run header (seeds, approval refs, snapshot, limits), a warning block for truncation and source failures, counts by queue, top 20 `new` and `unexplained` by rank, third-party dependencies, conflicts, stale evidence, then one concise evidence path per listed finding (`seed:1 example.com → [CT ev:…] staging.example.com → [DNS ev:…] 198.51.100.9`). Escape Markdown control characters in all source-derived text.
 
 ## 8. Differences from ARCHITECTURE.md
 

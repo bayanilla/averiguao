@@ -1,0 +1,1 @@
+{"cpes":["cpe:/a:nginx:nginx:1.18.0","cpe:/o:canonical:ubuntu_linux"],"hostnames":["Portal.Example.com.","www.example.com","portal.example.com"],"ip":"198.51.100.9","ports":[443,80,22,443],"tags":["cloud"],"vulns":["CVE-2021-23017","CVE-2019-20372"]}

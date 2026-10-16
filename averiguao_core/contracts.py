@@ -146,7 +146,7 @@ def asset_id(type_: AssetType, value: str) -> str:
 
 @dataclass(frozen=True)
 class Evidence(Record):
-    id: str                          # "ev:<sha256(source|query|retrieved_at|raw_sha256), first 16 hex>"; seeds use "ev:seed:<n>"
+    id: str                          # "ev:<sha256(source|query|source_record_id|retrieved_at|raw_sha256), first 16 hex>"; seeds use "ev:seed:<n>"
     source: str                      # a SourceName, or "scope" for seed approval evidence
     query: str
     source_url: str

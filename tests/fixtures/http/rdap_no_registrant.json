@@ -1,0 +1,2 @@
+{"handle":"NET-X","startAddress":"192.0.2.0","endAddress":"192.0.2.255","name":"NOREG","cidr0_cidrs":[{"v6prefix":"2001:db8::","length":32},{"v4prefix":"192.0.2.0","length":24}],
+"entities":[{"handle":"TECH-1","roles":["technical"],"vcardArray":["vcard",[["fn",{},"text","Hosting Ltd"],["org",{},"text",["Hosting Ltd","Ops"]]]]},{"handle":"AB-1","roles":["abuse"],"vcardArray":["vcard",[["fn",{},"text","Abuse Team"]]]}]}

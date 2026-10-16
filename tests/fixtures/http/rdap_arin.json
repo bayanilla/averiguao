@@ -1,0 +1,10 @@
+{"rdapConformance":["nro_rdap_profile_0","rdap_level_0","cidr0","arin_originas0"],"notices":[{"title":"Terms of Service","description":["By using the ARIN RDAP/Whois service, you are agreeing to the RDAP/Whois Terms of Use"]}],
+"handle":"NET-198-51-100-0-1","startAddress":"198.51.100.0","endAddress":"198.51.100.255","ipVersion":"v4","name":"EXAMPLE-NET","type":"DIRECT ALLOCATION","parentHandle":"NET-198-0-0-0-0",
+"events":[{"eventAction":"last changed","eventDate":"2023-07-12T09:15:03-04:00"},{"eventAction":"registration","eventDate":"2012-02-24T16:22:10-05:00"}],
+"links":[{"value":"https://rdap.arin.net/registry/ip/198.51.100.9","rel":"self","type":"application/rdap+json","href":"https://rdap.arin.net/registry/ip/198.51.100.0"}],
+"entities":[{"handle":"EXMPL-1","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Example Corp"],["adr",{"label":"1 Main St\nAnytown\nVA\n20000\nUnited States"},"text",["","","","","","",""]],["kind",{},"text","org"]]],"roles":["registrant"],
+  "entities":[{"handle":"ABUSE1234-ARIN","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Abuse Desk"],["org",{},"text","Abuse Desk"],["kind",{},"text","group"],["email",{},"text","abuse@example.com"]]],"roles":["abuse"]},
+              {"handle":"NOC99-ARIN","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Network Operations"],["kind",{},"text","group"]]],"roles":["technical","administrative"]}],
+  "events":[{"eventAction":"registration","eventDate":"2001-01-01T00:00:00-05:00"}]}],
+"port43":"whois.arin.net","status":["active"],"objectClassName":"ip network",
+"cidr0_cidrs":[{"v4prefix":"198.51.100.0","length":24}],"arin_originas0_originautnums":[]}
