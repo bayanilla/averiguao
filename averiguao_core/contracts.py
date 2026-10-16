@@ -247,9 +247,9 @@ class Finding(Record):
 
 @dataclass
 class Truncation(Record):
-    limit: str                               # "max_hostnames", "max_addresses", "max_queries", "max_seconds"
+    limit: str                               # "max_hostnames", "max_addresses", "max_queries", "max_seconds", "cancelled"
     omitted: int                             # how many items were not recorded/queried because of it (best effort)
     detail: str
 
 
-RunStatus = Literal["queued", "running", "pausing", "paused", "complete", "failed"]
+RunStatus = Literal["queued", "running", "pausing", "paused", "cancelling", "cancelled", "complete", "failed"]

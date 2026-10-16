@@ -19,7 +19,7 @@ from .store import DEFAULT_DB
 
 SOURCES = ("ct", "dns", "rdap", "internetdb")
 MAX_RATE = 50.0
-TERMINAL = {"complete", "failed"}
+TERMINAL = {"complete", "failed", "cancelled"}
 
 
 def _rate(text: str) -> tuple[str, float]:

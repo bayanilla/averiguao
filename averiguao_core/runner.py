@@ -1,6 +1,8 @@
 """Run queue and lifecycle. Owner: store/runner agent.
 
 States: queued -> running -> (pausing -> paused) -> running ... -> complete | failed.
+Cancel: running/pausing -> cancelling -> cancelled (after the current batch); queued/paused -> cancelled at once.
+A cancelled run keeps what it collected, skips the rest (recorded as a "cancelled" truncation) and is assessed.
 One run executes at a time; when it ends, the oldest queued run starts automatically.
 
 The store holds the status (single source of truth). The runner holds only the active run id, its stop Event and
@@ -14,7 +16,7 @@ import threading
 import time
 from typing import Callable
 
-from .contracts import Connector, SourceName
+from .contracts import Connector, SourceName, Truncation
 from .store import Store
 
 MAX_ERROR_CHARS = 300
@@ -100,14 +102,35 @@ class Runner:
                 return self.store.status(run_id) or "queued"
             raise ValueError(f"Cannot resume run in status '{status}'; only 'paused' or 'pausing' runs can be resumed")
 
+    def cancel(self, run_id: str) -> str:
+        """running/pausing -> cancelling (the worker stops after its current batch, then the run is finalized as
+        cancelled). queued/paused -> cancelled immediately. Cancelling again is a no-op. Returns the new status.
+        Raises ValueError for complete, failed or cancelled runs."""
+        with self._lock:
+            status = self.store.status(run_id)
+            if status is None:
+                raise ValueError(f"Unknown run {run_id}")
+            if status == "cancelling":
+                return status
+            if status in ("running", "pausing") and run_id == self._active and self._stop is not None:
+                self.store.set_status(run_id, "cancelling")
+                self._stop.set()
+                return "cancelling"
+            if status in ("queued", "paused", "running", "pausing"):  # running/pausing here: stale, no worker
+                self.store.set_status(run_id, "cancelled", self._finalize_cancel(run_id))
+                return "cancelled"
+            raise ValueError(f"Cannot cancel run in status '{status}'; only queued, running or paused runs can be "
+                             f"cancelled")
+
     def reassess(self, run_id: str) -> None:
-        """Recompute findings for a complete run against the current inventory snapshot. ValueError if not complete.
-        The run stays 'complete'; an exception from assess propagates and leaves the previous assessment intact."""
+        """Recompute findings for a complete or cancelled run against the current inventory snapshot. ValueError
+        otherwise. The status is kept; an exception from assess propagates and leaves the previous assessment intact."""
         status = self.store.status(run_id)
         if status is None:
             raise ValueError(f"Unknown run {run_id}")
-        if status != "complete":
-            raise ValueError(f"Cannot reassess run in status '{status}'; only 'complete' runs can be reassessed")
+        if status not in ("complete", "cancelled"):
+            raise ValueError(f"Cannot reassess run in status '{status}'; only complete or cancelled runs can be "
+                             f"reassessed")
         self._assess(self.store, run_id)
 
     def active_run(self) -> str | None:
@@ -177,16 +200,36 @@ class Runner:
                     return
 
                 with self._lock:
+                    status = self.store.status(run_id)
                     # A resume while pausing put the status back to 'running' and cleared the event: keep going.
-                    if not self._closing and not stop.is_set() and self.store.status(run_id) == "running":
+                    if not self._closing and not stop.is_set() and status == "running":
                         continue
-                    self._finish_locked(run_id, "paused")
-                    return
+                    if status != "cancelling":
+                        self._finish_locked(run_id, "paused")
+                        return
+                error = self._finalize_cancel(run_id)  # outside the lock: assessment can take a moment
+                with self._lock:
+                    self._finish_locked(run_id, "cancelled", error)
+                return
         except BaseException as exc:  # last resort: never leave the runner stuck with an active run
             with self._lock:
                 if self._active == run_id:
                     self._finish_locked(run_id, "failed", _error_message(exc))
             raise
+
+    def _finalize_cancel(self, run_id: str) -> str | None:
+        """Skip the remaining work, record it as a 'cancelled' truncation and assess what was collected.
+        Returns an error message if the assessment failed (the run is still cancelled), else None."""
+        skipped = self.store.skip_pending_tasks(run_id)
+        self.store.commit_batch(run_id, done_task_ids=[], evidence=[], assets=[], relationships=[], new_tasks=[],
+                                coverage=[], queries=0, source_failures={}, out_of_scope={},
+                                truncations=[Truncation(limit="cancelled", omitted=skipped,
+                                                        detail="Cancelled by the analyst; remaining work skipped.")])
+        try:
+            self._assess(self.store, run_id)
+        except Exception as exc:
+            return f"Cancelled, but findings could not be computed ({_error_message(exc)}). Use Reassess."
+        return None
 
     def _add_elapsed(self, run_id: str, started: float) -> None:
         try:

@@ -247,6 +247,77 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.status(second), "queued")
         self.assertIsNone(self.runner.active_run())
 
+    def add_pending_task(self, run_id, query="example.com"):
+        self.store.add_tasks(run_id, [("dns", query, "seed:1", 0, None)])
+
+    def test_cancel_running_stops_after_batch_skips_rest_and_assesses(self):
+        self.engine.honour_stop = False  # still busy with its batch when the cancel arrives
+        first, second = self.new_run("1"), self.new_run("2")
+        wait_for(lambda: self.started(first))
+        self.add_pending_task(first)
+        self.assertEqual(self.runner.cancel(first), "cancelling")
+        self.assertEqual(self.status(first), "cancelling")
+        self.assertEqual(self.runner.cancel(first), "cancelling")  # idempotent
+        with self.assertRaises(ValueError):
+            self.runner.resume(first)  # a cancel cannot be undone by resume
+        with self.assertRaises(ValueError):
+            self.runner.pause(first)
+        self.release(first)
+        wait_for(lambda: self.status(first) == "cancelled")
+        run = self.store.run(first)
+        self.assertEqual([t["limit"] for t in run["truncated"]], ["cancelled"])
+        self.assertEqual(run["truncated"][0]["omitted"], 1)
+        self.assertEqual(run["counts"]["tasks_pending"], 0)
+        self.assertIsNotNone(run["finished_at"])
+        self.assertIsNone(run["last_error"])
+        self.assertIn(first, self.engine.assessed)  # partial findings are kept and assessed
+        wait_for(lambda: self.started(second))  # the queue moves on
+        with self.assertRaises(ValueError):
+            self.runner.cancel(first)
+
+    def test_cancel_queued_and_paused_runs_immediately(self):
+        first, queued = self.new_run("1"), self.new_run("2")
+        wait_for(lambda: self.started(first))
+        self.assertEqual(self.runner.cancel(queued), "cancelled")
+        self.assertEqual(self.status(queued), "cancelled")
+        self.assertEqual(self.runner.pause(first), "pausing")
+        wait_for(lambda: self.status(first) == "paused")
+        self.add_pending_task(first)
+        self.assertEqual(self.runner.cancel(first), "cancelled")
+        self.assertEqual(self.store.run(first)["counts"]["tasks_pending"], 0)
+        self.assertEqual(self.engine.calls, [first])  # the cancelled queued run never executed
+
+    def test_cancel_rejects_finished_runs_and_cancelled_runs_can_be_reassessed(self):
+        run_id = self.new_run()
+        self.release(run_id)
+        wait_for(lambda: self.status(run_id) == "complete")
+        with self.assertRaises(ValueError):
+            self.runner.cancel(run_id)
+        with self.assertRaises(ValueError):
+            self.runner.cancel("missing")
+        other = self.store.create_run(config("x"))
+        self.store.set_status(other, "paused")
+        self.runner.cancel(other)
+        self.runner.reassess(other)
+        self.assertEqual(self.status(other), "cancelled")
+
+    def test_cancel_with_failing_assessment_still_cancels(self):
+        run_id = self.store.create_run(config("x"))
+        self.store.set_status(run_id, "paused")
+        self.engine.assess_error = RuntimeError("boom")
+        self.assertEqual(self.runner.cancel(run_id), "cancelled")
+        self.assertIn("Use Reassess", self.store.run(run_id)["last_error"])
+
+    def test_restart_while_cancelling_finishes_the_cancel(self):
+        run_id = self.store.create_run(config("x"))
+        self.add_pending_task(run_id)
+        self.store.set_status(run_id, "cancelling")
+        reopened = Store(self.store.path)
+        run = reopened.run(run_id)
+        self.assertEqual(run["status"], "cancelled")
+        self.assertEqual(run["counts"]["tasks_pending"], 0)
+        self.assertIn("Reassess", run["last_error"])
+
     def test_invalid_transitions(self):
         with self.assertRaises(ValueError):
             self.runner.pause("missing")

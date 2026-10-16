@@ -4,7 +4,8 @@
 const $ = id => document.getElementById(id);
 const PAGE = 50;
 const POLL_MS = 2500;
-const ACTIVE = new Set(['queued', 'running', 'pausing']);
+const ACTIVE = new Set(['queued', 'running', 'pausing', 'cancelling']);
+const IN_FLIGHT = ['running', 'pausing', 'cancelling', 'queued'];  // order: which run the Cancel button targets first
 const THEMES = new Set(['soc', 'nord', 'contrast', 'matrix', 'mucaro', 'notebook', 'amber']);
 const LIMIT_FIELDS = ['max_depth', 'max_hostnames', 'max_addresses', 'max_queries', 'max_seconds', 'max_prefix_addresses'];
 const QUEUE_LABEL = { known: 'Known', new: 'New', unexplained: 'Unexplained', third_party: 'Third-party' };
@@ -45,6 +46,7 @@ const state = {
   findingId: null,
   returnFocus: null,
   previewKey: null,
+  starting: false,
   pollTimer: null,
   findingsKey: null
 };
@@ -228,15 +230,66 @@ function formConfig() {
 
 function formChanged() {
   if (state.previewKey !== JSON.stringify(formConfig())) {
-    $('start').disabled = true;
+    state.previewKey = null;
+    updateStartButton();
   }
+}
+
+/* The Start run button becomes Cancel run while a run is queued or in progress. */
+function inFlightRun() {
+  for (const status of IN_FLIGHT) {
+    const run = state.runs.find(r => r.status === status);
+    if (run) return run;
+  }
+  return null;
+}
+
+function updateStartButton() {
+  const button = $('start');
+  const run = inFlightRun();
+  if (run) {
+    const cancelling = run.status === 'cancelling';
+    button.dataset.mode = 'cancel';
+    button.dataset.runId = run.id;
+    button.textContent = cancelling ? 'Cancelling…' : 'Cancel run';
+    button.classList.add('danger-button');
+    button.disabled = cancelling;
+    button.setAttribute('aria-label', `${cancelling ? 'Cancelling' : 'Cancel'} run: ${runTitle(run)}`);
+  } else {
+    button.dataset.mode = 'start';
+    delete button.dataset.runId;
+    button.textContent = 'Start run';
+    button.classList.remove('danger-button');
+    button.disabled = !state.previewKey || state.starting;
+    button.removeAttribute('aria-label');
+  }
+}
+
+async function startOrCancel() {
+  const button = $('start');
+  if (button.dataset.mode !== 'cancel') return startRun();
+  const runId = button.dataset.runId;
+  const run = state.runs.find(r => r.id === runId);
+  if (!run) return;
+  const ok = window.confirm(`Cancel "${runTitle(run)}"?\n\nWhat it has found so far is kept and assessed; the remaining lookups are skipped. A cancelled run cannot be resumed.`);
+  if (!ok) return;
+  button.disabled = true;
+  try {
+    await request(`/api/runs/${runId}/cancel`, { method: 'POST', body: {} });
+    setStatusText($('preview-result'), 'Cancelling: the run stops after its current batch.', '');
+  } catch (error) {
+    setStatusText($('preview-result'), error.message, 'error');
+  }
+  await loadRuns();
+  if (state.runId === runId) { await refreshRun(); await loadFindings(); }
+  schedulePoll();
 }
 
 async function preview(event) {
   event.preventDefault();
   const target = $('preview-result');
-  $('start').disabled = true;
   state.previewKey = null;
+  updateStartButton();
   const config = formConfig();
   $('approval-ref').setAttribute('aria-invalid', config.approval_ref ? 'false' : 'true');
   $('seeds').setAttribute('aria-invalid', config.seeds.trim() ? 'false' : 'true');
@@ -248,7 +301,7 @@ async function preview(event) {
   try {
     const data = await request('/api/preview', { method: 'POST', body: { config } });
     state.previewKey = JSON.stringify(config);
-    $('start').disabled = false;
+    updateStartButton();
     const seeds = el('ul', {}, data.seeds.map(seed => el('li', {}, el('span', { className: 'mono', text: seed.value }), ` · ${seed.type}`)));
     const warnings = data.warnings.length
       ? el('ul', {}, data.warnings.map(text => el('li', { className: 'warn-text', text })))
@@ -264,7 +317,8 @@ async function preview(event) {
 
 async function startRun() {
   if (!state.previewKey) return;
-  $('start').disabled = true;
+  state.starting = true;
+  updateStartButton();
   try {
     const run = await request('/api/runs', { method: 'POST', body: { config: JSON.parse(state.previewKey) } });
     state.previewKey = null;
@@ -273,7 +327,9 @@ async function startRun() {
     await selectRun(run.id, true);
   } catch (error) {
     setStatusText($('preview-result'), error.message, 'error');
-    $('start').disabled = false;
+  } finally {
+    state.starting = false;
+    updateStartButton();
   }
 }
 
@@ -283,6 +339,7 @@ async function loadRuns() {
   const data = await request('/api/runs');
   state.runs = data.runs;
   renderRuns();
+  updateStartButton();
 }
 
 function renderRuns() {
@@ -358,11 +415,12 @@ function renderRun() {
 
   $('pause').classList.toggle('hidden', !['queued', 'running'].includes(run.status));
   $('resume').classList.toggle('hidden', !['paused', 'pausing'].includes(run.status));
-  $('reassess').classList.toggle('hidden', run.status !== 'complete');
+  const finished = run.status === 'complete' || run.status === 'cancelled';
+  $('reassess').classList.toggle('hidden', !finished);
   for (const ext of ['json', 'csv', 'md']) {
     const link = $(`export-${ext}`);
     link.href = `/api/runs/${run.id}/export.${ext}`;
-    link.classList.toggle('hidden', run.status !== 'complete');
+    link.classList.toggle('hidden', !finished);
   }
 
   renderWarnings(run);
@@ -389,6 +447,8 @@ function statusSentence(run) {
     case 'running': return 'Running: discovery in progress.';
     case 'pausing': return 'Pausing after the current batch…';
     case 'paused': return 'Paused. Resume continues from the saved queue.';
+    case 'cancelling': return 'Cancelling after the current batch…';
+    case 'cancelled': return `Cancelled ${when(run.finished_at)}. Findings cover only what was collected before cancelling.`;
     case 'complete': return `Complete ${when(run.finished_at)}.`;
     case 'failed': return 'Failed.';
     default: return run.status;
@@ -400,16 +460,22 @@ function renderWarnings(run) {
   const add = (title, text, kind = '') => items.push(el('p', { className: `warning ${kind}` }, el('strong', { text: title }), text));
   if (run.status === 'failed' || run.last_error) add(run.status === 'failed' ? 'Run failed.' : 'Note.', run.last_error || 'No detail recorded.', run.status === 'failed' ? 'danger' : 'info');
   for (const t of run.truncated || []) {
+    if (t.limit === 'cancelled') {
+      add('Cancelled.', t.omitted
+        ? `${number(t.omitted)} remaining ${t.omitted === 1 ? 'lookup was' : 'lookups were'} skipped. Findings are usable but incomplete.`
+        : 'No lookups were waiting when it stopped. Findings cover what was collected before cancelling.');
+      continue;
+    }
     add('Truncated.', `Limit ${t.limit} reached: ${number(t.omitted)} item(s) not recorded or not queried. ${t.detail || ''} Findings are usable but incomplete.`);
   }
   const failures = Object.entries(run.source_failures || {}).filter(([, n]) => n > 0);
   if (failures.length) {
-    add('Source failures.', `${failures.map(([s, n]) => `${SOURCE_LABEL[s] || s}: ${number(n)}`).join(' · ')}. Affected findings carry the source_error flag.`);
+    add('Source failures.', `${failures.map(([s, n]) => `${SOURCE_LABEL[s] || s}: ${number(n)}`).join(' · ')}. Findings about a failed lookup carry the source_error flag; failed prefix addresses are listed under Prefix coverage.`);
   }
   const noInventory = !(state.inventory && state.inventory.current);
   if ((run.flags || []).includes('empty_inventory')) {
     add('Empty inventory.', 'No inventory snapshot existed when this run completed, so nothing is Known. Import one, then Reassess.');
-  } else if (noInventory && run.status !== 'complete') {
+  } else if (noInventory && ACTIVE.has(run.status)) {
     add('No inventory loaded.', 'Import a baseline before this run completes, or reassess afterwards; otherwise nothing can be Known.');
   }
   if (!(run.config.org_names || []).length) {
@@ -769,7 +835,7 @@ function wire() {
   $('run-form').addEventListener('submit', preview);
   $('run-form').addEventListener('input', formChanged);
   $('run-form').addEventListener('change', formChanged);
-  $('start').addEventListener('click', startRun);
+  $('start').addEventListener('click', startOrCancel);
   $('pause').addEventListener('click', () => runAction('pause'));
   $('resume').addEventListener('click', () => runAction('resume'));
   $('reassess').addEventListener('click', () => runAction('reassess'));

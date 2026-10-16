@@ -408,20 +408,22 @@ class Handler(BaseHTTPRequestHandler):
             summary = {k: v for k, v in snapshot.to_dict().items() if k != "entries"}
             summary["entry_count"] = len(snapshot.entries)
             return self._json(200, {"snapshot": summary, "entry_count": len(snapshot.entries)})
-        if len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] in {"pause", "resume", "reassess"}:
+        if len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] in {"pause", "resume", "cancel", "reassess"}:
             run = self._run(parts[2])
             try:
                 if parts[3] == "pause":
                     status = self.runner.pause(run["id"])
                 elif parts[3] == "resume":
                     status = self.runner.resume(run["id"])
+                elif parts[3] == "cancel":
+                    status = self.runner.cancel(run["id"])
                 else:
                     self.runner.reassess(run["id"])
                     status = (self.store.run(run["id"]) or run)["status"]
             except ValueError as exc:
                 raise ApiError(409, str(exc) or "Run state does not allow this action.") from None
-            except Exception as exc:  # noqa: BLE001 - reassess failures leave the run complete; report why
-                raise ApiError(500, "Reassessment failed.") from None
+            except Exception as exc:  # noqa: BLE001 - never leak internals; the run keeps its last good state
+                raise ApiError(500, "Reassessment failed." if parts[3] == "reassess" else "Action failed.") from None
             return self._json(200, {"status": status})
         raise ApiError(404, "Not found.")
 

@@ -23,7 +23,7 @@ from .contracts import (Assertion, Asset, Evidence, Finding, InventoryEntry, Inv
 DEFAULT_DB = Path(__file__).resolve().parent.parent / ".averiguao" / "averiguao.sqlite3"
 
 SCHEMA_VERSION = 1
-RUN_STATUSES = ("queued", "running", "pausing", "paused", "complete", "failed")
+RUN_STATUSES = ("queued", "running", "pausing", "paused", "cancelling", "cancelled", "complete", "failed")
 QUEUE_ORDER = {"known": 0, "new": 1, "unexplained": 2, "third_party": 3}
 _FINDING_SORTS = {
     "rank": "rank DESC, value ASC, id ASC",
@@ -258,7 +258,8 @@ def _finding_from_dict(d: dict[str, Any]) -> Finding:
 class Store:
     def __init__(self, path: Path = DEFAULT_DB):
         """Create schema if missing. Any run left 'running' or 'pausing' by a crash becomes 'paused' with
-        last_error 'Interrupted by restart.'; its 'running' tasks go back to 'pending'."""
+        last_error 'Interrupted by restart.'; its 'running' tasks go back to 'pending'. A run left 'cancelling'
+        becomes 'cancelled' with its pending tasks skipped; its findings need a Reassess."""
         self.path = Path(path)
         self._secure_files()
         db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
@@ -281,6 +282,11 @@ class Store:
             db.execute("UPDATE runs SET status='paused', last_error='Interrupted by restart.', updated_at=? "
                        "WHERE status IN ('running','pausing')", (now,))
             db.execute("UPDATE tasks SET status='pending' WHERE status='running'")
+            db.execute("UPDATE tasks SET status='skipped' WHERE status='pending' AND run_id IN "
+                       "(SELECT id FROM runs WHERE status='cancelling')")
+            db.execute("UPDATE runs SET status='cancelled', finished_at=?, updated_at=?, "
+                       "last_error='Cancelled; interrupted before findings were computed. Use Reassess.' "
+                       "WHERE status='cancelling'", (now, now))
 
     def _secure_files(self) -> None:
         """Inventory, approvals and findings are sensitive: data directory 0700, database and -wal/-shm 0600,
@@ -404,8 +410,8 @@ class Store:
             return _config_from_dict(json.loads(row["config"])) if row else None
 
     def set_status(self, run_id: str, status: RunStatus, error: str | None = None) -> None:
-        """Also sets started_at on first 'running' and finished_at on 'complete'/'failed'.
-        last_error is set when ``error`` is given and cleared when the run goes back to 'queued'/'running'."""
+        """Also sets started_at on first 'running' and finished_at on 'complete'/'failed'/'cancelled'.
+        last_error is set when ``error`` is given and cleared when the run goes to 'queued'/'running'/'cancelled'."""
         if status not in RUN_STATUSES:
             raise ValueError(f"Unknown run status {status!r}")
         now = utc_now()
@@ -418,13 +424,13 @@ class Store:
             if status == "running" and row["started_at"] is None:
                 sets.append("started_at=?")
                 args.append(now)
-            if status in ("complete", "failed"):
+            if status in ("complete", "failed", "cancelled"):
                 sets.append("finished_at=?")
                 args.append(now)
             if error is not None:
                 sets.append("last_error=?")
                 args.append(error)
-            elif status in ("queued", "running"):
+            elif status in ("queued", "running", "cancelled"):
                 sets.append("last_error=NULL")
             db.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id=?", (*args, run_id))
 

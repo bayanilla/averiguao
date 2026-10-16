@@ -35,7 +35,7 @@ The printed link carries a new access token each time the server starts. Without
 2. **New run.** Enter one seed per line, an approval reference (who authorized this scope) and the organization's registered names as RDAP shows them (for example `Example Corp, EXAMPLE-1`). Without organization names, address ownership can never be supported. Preview shows the normalized seeds and the estimated query count.
 3. **Review.** Filter by queue, type or flag, and open a finding to see its evidence path and assessments. Exports are JSON (full provenance), CSV (one row per finding) and Markdown (analyst summary).
 
-Runs are queued and run one at a time. Pause and resume take effect at batch boundaries, and a restarted server resumes paused or interrupted runs from their last committed batch. **Reassess** recomputes queues against the current inventory without new queries.
+Runs are queued and run one at a time. Pause and resume take effect at batch boundaries. While a run is going, **Start run** becomes **Cancel run**: a cancelled run stops after its current batch, keeps and assesses what it found, and cannot be resumed. A restarted server resumes paused or interrupted runs from their last committed batch. **Reassess** recomputes queues against the current inventory without new queries.
 
 Headless:
 

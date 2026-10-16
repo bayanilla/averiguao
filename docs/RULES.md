@@ -26,7 +26,7 @@ A run captures the current snapshot id when it **completes**; a run cannot compl
 
 ## 2. Discovery (engine)
 
-The engine is a persisted work queue of **tasks** `(source, query, seed_id, depth, from_asset_id)`. Tasks are processed in batches; each batch's results and the new tasks it produces commit in one transaction, so a crash or pause loses at most the in-flight batch, which is retried on resume.
+The engine is a persisted work queue of **tasks** `(source, query, seed_id, depth, from_asset_id)`. Tasks are processed in batches; each batch's results and the new tasks it produces commit in one transaction, so a crash or pause loses at most the in-flight batch, which is retried on resume. **Cancel** stops a run at the next batch boundary (a queued or paused run at once), marks its pending tasks skipped, records a `cancelled` truncation with the number skipped, and assesses what was collected. A cancelled run cannot be resumed but can be reassessed and exported.
 
 Initial tasks:
 
