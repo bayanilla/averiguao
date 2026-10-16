@@ -1,47 +1,79 @@
 # Múcaro | Averiguao
 
-Averiguao is a Python proof of concept for reviewing passive public observations about an approved IPv4 address or range. It queries Shodan InternetDB once per address, saves progress and positive observations in local SQLite, compares observed IPs with an optional inventory baseline, and presents the results in a browser. It does not scan or contact the investigated addresses.
+Averiguao finds public infrastructure that belongs to, or serves, an organization but is missing from its inventory. You give it approved seeds (domains, IPv4 addresses or IPv4 prefixes) and an inventory snapshot. It follows a small, bounded set of passive observations outward from those seeds, attributes what it finds, and sorts every candidate into one of four review queues:
 
-## Run locally
+| Queue | Meaning |
+| --- | --- |
+| **Known** | Matches the inventory. |
+| **New** | Not in the inventory and supported as the organization's own (approved domain, or RDAP registered to the organization). |
+| **Unexplained** | Linked to the organization, but ownership and operation are unresolved (for example, an app hosted on a cloud provider). |
+| **Third-party** | Serves an organizational name but is operated by someone else (the name's CNAME ends at an external provider). |
 
-Python 3.10 or later is required. No third-party Python packages or API token are required.
+Every finding keeps the evidence path from its seed (`seed → certificate → hostname → DNS → address`), retrieval times, source validity periods where the source reports them, and the four attribution dimensions (ownership, operational control, hosting, service association) assessed separately. Averiguao never contacts the investigated hosts.
 
-```sh
-python3 oifd.py
-```
+**Status:** Stage 1. Domain, IP and prefix seeds; Certificate Transparency, DNS, RDAP and Shodan InternetDB. ASN seeds, BGP and passive DNS history are planned, not built. The exact implemented behaviour is in [docs/RULES.md](docs/RULES.md); the longer-term design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Open [http://127.0.0.1:8767/](http://127.0.0.1:8767/) on the same computer. The server binds only to loopback. You can choose another port and tune the request pace:
+## Try it without network
 
-```sh
-python3 oifd.py --port 8768 --rate 50 --workers 8
-```
-
-The default is at most 50 requests per second across eight workers. This is an application setting, not a promised InternetDB allowance. HTTP 429 responses trigger a shared cooldown. Repeated source failures pause the job rather than marching through a large range as errors. The run can then be resumed. Avoid running multiple Averiguao server processes against the same data directory.
-
-If the Python.org macOS build lacks its own trusted certificate bundle, Averiguao uses the Mac's `/etc/ssl/cert.pem` for verified HTTPS. It never disables certificate verification. On other systems, Python's configured trust store is used.
-
-## Review a range
-
-1. Optionally import a CSV of known public IPs or CIDRs using `IP_or_CIDR,label`. Saving a new baseline replaces the previous one and updates the classification of displayed results.
-2. Enter one approved public IPv4 address or CIDR. **Preview range** shows the normalized range and exact number of addresses.
-3. Select **Start lookup**. Every address in the selected range is checked, including addresses with no InternetDB record. A `/16` is 65,536 lookups and a `/8` is 16,777,216; large jobs can take substantial time. The job runs in batches of 256, and progress is committed after each batch.
-4. Use **Pause** or **Resume** as needed. If the server is stopped, an interrupted job is marked paused when it starts again; resume from its last committed batch.
-5. Inspect records and export CSV or JSON. Exports contain fetched positive or error records. The summary separately counts addresses for which InternetDB returned no record.
-
-Data lives in `.oifd/oifd.sqlite3` and is ignored by Git. Back up that directory if you need the history. Averiguao does not send the inventory baseline to InternetDB; it sends only the individual addresses being queried. InternetDB and network intermediaries can see those queries and the requesting public IP.
-
-## Interpret the evidence
-
-InternetDB reports ports, hostnames, software identifiers, tags, and potential CVE identifiers. These are source observations, not a live test or vulnerability confirmation. Averiguao stores retrieval time, the source URL, and a hash of the source response. InternetDB does not provide a per-IP scan time through this endpoint, so Averiguao leaves that time unknown rather than substituting its retrieval time. Its database is updated weekly according to [Shodan's documentation](https://book.shodan.io/developer-apis/internetdb/).
-
-“No record” means InternetDB returned no information for that address. It does not mean the address is unused or safe. A result on an approved range can be a tenant, vendor, or shared hosting service. The current app does not infer ownership or operational control.
-
-Shodan states that the hosted InternetDB API requires no key and is free for noncommercial use, including use within a company, but not as the basis of a charged commercial product. See [Shodan's usage description](https://blog.shodan.io/introducing-the-internetdb-api/) before distributing or monetizing an integration.
-
-## Verify
+Python 3.10 or later, no third-party packages.
 
 ```sh
-python3 -m unittest -v
+python3 averiguao.py --demo
 ```
 
-The tests use simulated InternetDB responses. They verify range handling, inventory reconciliation, batch checkpoints, restart recovery, and rate-limit retry behavior without querying external addresses.
+Open the printed `http://127.0.0.1:…` address. Demo mode uses a synthetic "Example Corp" world and a separate database. It shows every queue, plus the traps the scope rules have to resist: a shared certificate naming other customers, other tenants on a shared host, an expired certificate, a CDN and a SaaS status page.
+
+## Run against real sources
+
+```sh
+python3 averiguao.py                 # web UI on http://127.0.0.1:8767/
+```
+
+1. **Inventory baseline.** Import a CSV of `value,label`. A value can be an IPv4 address, a CIDR, an exact hostname, or `*.example.com` for a whole domain tree. Each import is a new, immutable snapshot.
+2. **New run.** Enter one seed per line, an approval reference (who authorized this scope) and the organization's registered names as RDAP shows them (for example `Example Corp, EXAMPLE-1`). Without organization names, address ownership can never be supported. Preview shows the normalized seeds and the estimated query count.
+3. **Review.** Filter by queue, type or flag, and open a finding to see its evidence path and assessments. Exports are JSON (full provenance), CSV (one row per finding) and Markdown (analyst summary).
+
+Runs are queued and run one at a time. Pause and resume take effect at batch boundaries, and a restarted server resumes paused or interrupted runs from their last committed batch. **Reassess** recomputes queues against the current inventory without new queries.
+
+Headless:
+
+```sh
+python3 averiguao.py run --config run.json --inventory inventory.csv --out reports/
+```
+
+`run.json` takes the same shape as the UI form:
+
+```json
+{"seeds": "example.com\n198.51.100.0/28", "approval_ref": "SEC-1234", "org_names": ["Example Corp"]}
+```
+
+## Boundaries and limits
+
+- **Seeds:** prefixes larger than 4,096 addresses are rejected by default (the configurable ceiling is a /16). Any seed overlapping private, reserved or other special-purpose space is rejected, as are bare public suffixes such as `co.uk` or `github.io`.
+- **Discovery:** stays inside the approved domains, at most two hops from a seed. Names on a shared certificate that fall outside the approved domains are counted, not followed, and so are other tenants' names on a shared host. Addresses next to an approved prefix are never queried. Public DNS answers pointing into private address space are flagged and never sent to any source.
+- **Run limits:** hostnames, addresses, queries and time are each capped per run. When a run hits a cap it completes with a visible truncation notice, so the absence of a finding is never mistaken for the absence of infrastructure. Source failures are counted and shown too.
+- **Sources and default rates:** crt.sh 0.5/s, Cloudflare DNS-over-HTTPS 10/s, rdap.org 1/s, InternetDB 5/s. Change them with `--rate SOURCE=N`. Connections are reused and each source's rate limit is shared across workers. `Retry-After` is honoured, and a source that asks for a long pause fails fast instead of blocking the run. Requests identify themselves with a User-Agent that links to this repository.
+
+Shodan describes InternetDB as free for noncommercial use, including within a company, but not as the basis of a paid product. crt.sh is a community service with no capacity guarantee. Read each source's terms before heavy or commercial use.
+
+## What the evidence means
+
+Observations are what a source reported at retrieval time, not live tests. "No record" means the source had nothing, not that an address is unused or safe. A hostname under an approved domain supports ownership of the name, not control of the server it points to. An RDAP registration to a cloud provider means the provider owns the address, not that the organization does not operate the service. Averiguao keeps conflicting evidence visible instead of choosing a winner.
+
+Data lives in `.averiguao/` (ignored by Git). The server listens only on 127.0.0.1 and rejects requests from other origins.
+
+## Develop
+
+```sh
+python3 -m unittest discover -s tests -t .
+NODE_PATH=$(npm root -g) node tests/e2e/test_ui.mjs     # optional, needs Playwright
+```
+
+| Suite | Covers |
+| --- | --- |
+| Unit tests | One per module. |
+| `tests/acceptance/` | Checks the synthetic world against the Stage 1 acceptance criteria. |
+| `tests/adversarial/` | Scope-escape and source-etiquette probes. |
+| `tests/security/` | Local server and report-injection probes. |
+
+No test touches the network.

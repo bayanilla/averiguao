@@ -1,5 +1,7 @@
 # Múcaro | Averiguao — Stage 1 architecture
 
+> **Status:** design document. The implemented subset (domain, IP and prefix seeds; CT, DNS-over-HTTPS, RDAP and InternetDB) and every rule it follows are in [RULES.md](RULES.md), which also lists where the implementation differs from this design. ASN seeds, BGP and passive DNS are not built yet.
+
 ## Purpose and boundary
 
 The Averiguao proof of concept identifies public infrastructure candidates that are missing from an approved inventory. It uses approved organizational seeds and passive observations, then produces evidence that an analyst can inspect. A discovery relationship is not an ownership claim.
