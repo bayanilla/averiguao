@@ -175,7 +175,7 @@ class ServerTest(unittest.TestCase):
         self.runner.reassess_error = RuntimeError("snapshot vanished")
         try:
             err = self.json("POST", f"/api/runs/{self.run_id}/reassess", {}, status=500)
-            self.assertIn("snapshot vanished", err["error"])
+            self.assertEqual(err["error"], "Reassessment failed.")  # no internal detail echoed
         finally:
             self.runner.reassess_error = None
         self.json("POST", f"/api/runs/{self.run_id}/explode", {}, status=404)

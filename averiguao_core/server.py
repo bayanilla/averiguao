@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -82,6 +83,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "Averiguao"
     sys_version = ""
     protocol_version = "HTTP/1.0"  # every response closes the connection; streamed exports need no length
+    timeout = 20  # seconds; a stalled or slow client is dropped instead of pinning a thread
     store: Store
     runner: Any
     demo: bool = False
@@ -169,8 +171,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(exc)})
         except UnicodeDecodeError:
             self._json(400, {"error": "Invalid path encoding."})
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError):
             pass
+        except TimeoutError:  # socket.timeout: the client stalled mid-request; drop it without a response
+            self.close_connection = True
         except Exception as exc:  # noqa: BLE001 - never leak a traceback to the client
             try:
                 self._json(500, {"error": f"Internal error: {type(exc).__name__}"})
@@ -380,14 +384,37 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 raise ApiError(409, str(exc) or "Run state does not allow this action.") from None
             except Exception as exc:  # noqa: BLE001 - reassess failures leave the run complete; report why
-                raise ApiError(500, f"{parts[3].capitalize()} failed: {type(exc).__name__}: {exc}"[:300]) from None
+                raise ApiError(500, "Reassessment failed.") from None
             return self._json(200, {"status": status})
         raise ApiError(404, "Not found.")
+
+
+MAX_CONNECTIONS = 32
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)  # over the cap: refuse rather than spawn another thread
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 def make_server(store: Store, runner: Any, *, port: int, demo: bool = False,

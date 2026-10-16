@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import sys
 import threading
@@ -86,7 +87,10 @@ def _setup(args: argparse.Namespace) -> tuple[Any, Callable[[], dict], dict[str,
     """Store, connector factory and (demo only) the demo config."""
     from .store import Store
     data_dir: Path = args.data_dir
-    data_dir.mkdir(parents=True, exist_ok=True)
+    # Inventory, scope and findings are sensitive. A directory we create is owner-only; an existing one the
+    # user chose (possibly their home or a shared folder) keeps its mode, and the database files are 0600 anyway.
+    if not data_dir.exists():
+        os.makedirs(data_dir, mode=0o700)
     rates = dict(args.rate)
     if args.demo:
         from .connectors import fake
@@ -170,7 +174,7 @@ def run_headless(args: argparse.Namespace) -> int:
         if args.inventory:
             inventory = parse_inventory(args.inventory.read_text(encoding="utf-8"), label=args.inventory_label,
                                         as_of=args.as_of)
-        args.out.mkdir(parents=True, exist_ok=True)
+        os.makedirs(args.out, mode=0o700, exist_ok=True)
     except (OSError, ValueError, ScopeError) as exc:  # json.JSONDecodeError is a ValueError
         print(f"Input error: {exc}", file=sys.stderr)
         return 2
@@ -202,7 +206,9 @@ def run_headless(args: argparse.Namespace) -> int:
         return 3
     for ext, fn in (("json", reports.json_report), ("csv", reports.csv_report), ("md", reports.markdown_report)):
         path = args.out / reports.report_filename(run_id, ext)
-        with open(path, "wb") as handle:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)  # also tighten a pre-existing file
+        with os.fdopen(fd, "wb") as handle:
             for chunk in fn(store, run_id):
                 handle.write(chunk)
         print(f"Wrote {path}", file=sys.stderr)

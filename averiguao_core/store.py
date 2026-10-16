@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import sqlite3
+import stat
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -258,10 +260,12 @@ class Store:
         """Create schema if missing. Any run left 'running' or 'pausing' by a crash becomes 'paused' with
         last_error 'Interrupted by restart.'; its 'running' tasks go back to 'pending'."""
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._secure_files()
         db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         try:
             db.execute("PRAGMA journal_mode=WAL")
+            db.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # makes SQLite create -wal/-shm now
+            self._secure_files()
         finally:
             db.close()
         with self._tx(write=True) as db:
@@ -277,6 +281,32 @@ class Store:
             db.execute("UPDATE runs SET status='paused', last_error='Interrupted by restart.', updated_at=? "
                        "WHERE status IN ('running','pausing')", (now,))
             db.execute("UPDATE tasks SET status='pending' WHERE status='running'")
+
+    def _secure_files(self) -> None:
+        """Inventory, approvals and findings are sensitive: data directory 0700, database and -wal/-shm 0600,
+        regardless of the process umask (which is never changed)."""
+        # Only directories created here get 0700; a directory that already existed is never touched.
+        missing = []
+        parent = self.path.parent
+        while not parent.exists():
+            missing.append(parent)
+            parent = parent.parent
+        for directory in reversed(missing):
+            try:
+                directory.mkdir(mode=0o700)
+            except FileExistsError:
+                continue  # created concurrently by someone else: not ours to change
+            if os.name == "posix":
+                os.chmod(directory, 0o700)
+        fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.close(fd)
+        for suffix in ("", "-wal", "-shm"):
+            target = Path(f"{self.path}{suffix}")
+            try:
+                if os.name == "posix" and stat.S_IMODE(target.stat().st_mode) & 0o077:
+                    os.chmod(target, 0o600)
+            except FileNotFoundError:
+                pass
 
     @contextmanager
     def _tx(self, write: bool = False) -> Iterator[sqlite3.Connection]:

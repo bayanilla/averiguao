@@ -31,8 +31,8 @@ _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
 def safe_cell(value: object) -> str:
-    """Text for one CSV cell. None becomes ""; any cell that a spreadsheet could read as a formula
-    (leading = + - @ tab or carriage return) is prefixed with an apostrophe."""
+    """Text for one CSV cell. None becomes ""; any cell, and any ';'-separated segment of a cell, that a
+    spreadsheet could read as a formula (leading = + - @ tab or carriage return) is prefixed with an apostrophe."""
     if value is None:
         text = ""
     elif isinstance(value, bool):
@@ -40,12 +40,13 @@ def safe_cell(value: object) -> str:
     elif isinstance(value, float):
         text = f"{value:.2f}"
     elif isinstance(value, (list, tuple)):
-        text = ";".join("" if item is None else str(item) for item in value)
+        text = ";".join("" if item is None else str(item) for item in value)  # each item checked below
     else:
         text = str(value)
-    if text.startswith(_FORMULA_PREFIXES):
-        return "'" + text
-    return text
+    # Spreadsheets in ';'-separator locales split an unquoted cell at ';' and evaluate each piece, so every
+    # ';'-separated segment (list items and source text containing ';') is neutralised on its own.
+    return ";".join("'" + segment if segment.lstrip(" ").startswith(_FORMULA_PREFIXES) else segment
+                    for segment in text.split(";"))
 
 
 _MD_SPECIAL = set("\\`*_{}[]()<>#+-.!|~&")
