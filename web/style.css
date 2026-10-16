@@ -97,6 +97,12 @@ button:hover,
   filter: brightness(1.08);
 }
 
+button.danger-button {
+  background: var(--raised);
+  color: var(--error);
+  border-color: var(--error);
+}
+
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -525,7 +531,8 @@ main {
 
 .status-running,
 .status-queued,
-.status-pausing {
+.status-pausing,
+.status-cancelling {
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -538,6 +545,11 @@ main {
 .status-failed {
   color: var(--error);
   border-color: var(--error);
+}
+
+.status-cancelled {
+  color: var(--secondary);
+  border-color: var(--border-strong);
 }
 
 .status-paused {

@@ -41,6 +41,12 @@ class FakeRunner:
             raise ValueError(f"Cannot resume a {status} run.")
         return "queued"
 
+    def cancel(self, run_id):
+        status = self.store.run(run_id)["status"]
+        if status not in {"queued", "running", "pausing", "paused", "cancelling"}:
+            raise ValueError(f"Cannot cancel a {status} run.")
+        return "cancelling"
+
     def reassess(self, run_id):
         if self.reassess_error:
             raise self.reassess_error
@@ -201,10 +207,13 @@ class ServerTest(unittest.TestCase):
         err = self.json("POST", f"/api/runs/{run['id']}/resume", {}, status=409)
         self.assertIn("resume", err["error"])
         self.json("POST", f"/api/runs/{run['id']}/reassess", {}, status=409)
+        self.assertEqual(self.json("POST", f"/api/runs/{run['id']}/cancel", {})["status"], "cancelling")
 
     def test_actions_on_complete_run(self):
         self.json("POST", f"/api/runs/{self.run_id}/pause", {}, status=409)
         self.json("POST", f"/api/runs/{self.run_id}/resume", {}, status=409)
+        err = self.json("POST", f"/api/runs/{self.run_id}/cancel", {}, status=409)
+        self.assertIn("cancel", err["error"])
         self.assertEqual(self.json("POST", f"/api/runs/{self.run_id}/reassess", {})["status"], "complete")
         self.runner.reassess_error = RuntimeError("snapshot vanished")
         try:

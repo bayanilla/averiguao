@@ -124,6 +124,37 @@ try {
   });
   check(exportStatus[0] === 200 && /attachment/.test(exportStatus[1]), 'Markdown export downloads');
 
+  // The Start button becomes Cancel while a run is in flight. The demo finishes too fast to catch mid-run, so the
+  // run list is rewritten to show it running; the runner side of cancel is covered by the unit tests.
+  const cancelPage = await context.newPage();
+  cancelPage.on('pageerror', err => problems.push(String(err)));
+  let cancelPosted = null;
+  await cancelPage.route(/\/api\/runs$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    body.runs[0].status = cancelPosted ? 'cancelling' : 'running';
+    await route.fulfill({ response, json: body });
+  });
+  await cancelPage.route(/\/api\/runs\/[^/]+\/cancel$/, async route => {
+    cancelPosted = route.request().method();
+    await route.fulfill({ json: { status: 'cancelling' } });
+  });
+  await cancelPage.goto(url);
+  await cancelPage.waitForFunction(() => document.querySelector('#start').textContent === 'Cancel run');
+  check(await cancelPage.evaluate(() => document.querySelector('#start').classList.contains('danger-button')), 'running run turns Start into a red Cancel run button');
+  check(!(await cancelPage.isDisabled('#start')), 'Cancel run is enabled');
+  await cancelPage.screenshot({ path: join(SHOTS, '05b-cancel-button.png'), fullPage: false });
+  let dialogText = '';
+  cancelPage.once('dialog', dialog => { dialogText = dialog.message(); dialog.dismiss(); });
+  await cancelPage.click('#start');
+  check(/cancel/i.test(dialogText) && cancelPosted === null, 'Cancel asks for confirmation; dismissing sends nothing');
+  cancelPage.once('dialog', dialog => dialog.accept());
+  await cancelPage.click('#start');
+  await cancelPage.waitForFunction(() => document.querySelector('#start').textContent === 'Cancelling…');
+  check(cancelPosted === 'POST' && await cancelPage.isDisabled('#start'), 'confirming posts the cancel and shows a disabled Cancelling…');
+  await cancelPage.close();
+
   // Narrow phone width.
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
   const mobile = await phone.newPage();
