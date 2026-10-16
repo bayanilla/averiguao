@@ -2,10 +2,6 @@
 
 Averiguao is a Python proof of concept for reviewing passive public observations about an approved IPv4 address or range. It queries Shodan InternetDB once per address, saves progress and positive observations in local SQLite, compares observed IPs with an optional inventory baseline, and presents the results in a browser. It does not scan or contact the investigated addresses.
 
-This is the first working slice of the broader [Stage 1 architecture](ARCHITECTURE.md). RDAP, RIPEstat/BGP, DNS, Certificate Transparency, and optional full Shodan or Censys connectors are planned but **not yet implemented** in this app. Its current classification is limited to **known in inventory** versus **unaccounted for**; neither label establishes ownership, operational control, or current exposure.
-
-The name follows the **Múcaro | Tool Name** convention used by Pathfinder and BGP Routing Exposure Lookup. The interface includes their seven shared appearance themes. SOC Dark is the default; a chosen theme is saved only in this browser.
-
 ## Run locally
 
 Python 3.10 or later is required. No third-party Python packages or API token are required.
