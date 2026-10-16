@@ -69,8 +69,12 @@ class NullRunner:
     def reassess(self, run_id): raise ValueError("no")
 
 
+TOKEN = "h" * 43  # fixed access token for the hostile fixture server
+
+
 def start_server(store, *, demo: bool = True):
-    httpd = server_mod.make_server(store, NullRunner(), port=0, demo=demo, demo_config=dict(HOSTILE_CONFIG))
+    httpd = server_mod.make_server(store, NullRunner(), port=0, token=TOKEN, demo=demo,
+                                   demo_config=dict(HOSTILE_CONFIG))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
@@ -84,8 +88,10 @@ def raw_request(port: int, method: str, path: str, headers: dict[str, str] | Non
         conn.putheader("Host", f"127.0.0.1:{port}")
     elif host is not None:
         conn.putheader("Host", host)
-    for key, value in (headers or {}).items():
-        conn.putheader(key, value)
+    merged = {"Cookie": f"averiguao_{port}={TOKEN}", **(headers or {})}
+    for key, value in merged.items():
+        if value is not None:  # None drops the default access-token cookie
+            conn.putheader(key, value)
     if body is not None:
         conn.putheader("Content-Length", str(len(body)))
     conn.endheaders(body)

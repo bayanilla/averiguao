@@ -15,6 +15,9 @@ from averiguao_core.contracts import VERSION
 from tests.fixtures.pipeline import run_pipeline
 
 
+
+TOKEN = "t" * 43  # tests use a fixed access token; the CLI generates a random one per start
+
 class FakeRunner:
     """Records calls; state machine just strict enough for the 409 paths."""
 
@@ -53,7 +56,8 @@ class ServerTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.store, cls.run_id = run_pipeline(demo_world(), DEMO_CONFIG, DEMO_INVENTORY_CSV, tmpdir=cls.tmp.name)
         cls.runner = FakeRunner(cls.store)
-        cls.httpd = server_mod.make_server(cls.store, cls.runner, port=0, demo=cls.demo, demo_config=dict(DEMO_CONFIG))
+        cls.httpd = server_mod.make_server(cls.store, cls.runner, port=0, token=TOKEN, demo=cls.demo,
+                                           demo_config=dict(DEMO_CONFIG))
         cls.port = cls.httpd.server_address[1]
         cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
         cls.thread.start()
@@ -67,7 +71,7 @@ class ServerTest(unittest.TestCase):
     # ------------------------------------------------------------ helpers
     def request(self, method, path, body=None, headers=None, raw=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        hdrs = {"Host": f"127.0.0.1:{self.port}"}
+        hdrs = {"Host": f"127.0.0.1:{self.port}", "Cookie": f"averiguao_{self.port}={TOKEN}"}
         data = raw
         if body is not None:
             data = json.dumps(body).encode()
@@ -75,6 +79,7 @@ class ServerTest(unittest.TestCase):
         if data is not None:
             hdrs["Content-Length"] = str(len(data))
         hdrs.update(headers or {})
+        hdrs = {key: value for key, value in hdrs.items() if value is not None}  # None drops a default header
         conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
         for key, value in hdrs.items():
             conn.putheader(key, value)
@@ -99,6 +104,35 @@ class ServerTest(unittest.TestCase):
             self.json("POST", "/api/inventory", {"csv": "1.2.3.4"}, headers=headers, status=403)
         self.json("GET", "/api/health", headers={"Host": f"localhost:{self.port}",
                                                   "Origin": f"http://localhost:{self.port}"})
+
+    def test_access_token_required(self):
+        """Other local users and processes can reach any loopback port; without the token they get nothing."""
+        for cookie in (None, f"averiguao_{self.port}=wrong", f"averiguao_{self.port + 1}={TOKEN}", "garbage;;=="):
+            headers = {"Cookie": cookie}
+            self.json("GET", "/api/runs", headers=headers, status=401)
+            self.json("GET", f"/api/runs/{self.run_id}/export.json", headers=headers, status=401)
+            self.json("POST", "/api/inventory", {"csv": "1.2.3.4"}, headers=headers, status=401)
+            response, payload = self.request("GET", "/", headers=headers)
+            self.assertEqual(response.status, 401)
+            self.assertIn(b"Access token required", payload)
+            self.assertNotIn(b"app.js", payload)
+        response, _ = self.request("GET", "/?token=wrong", headers={"Cookie": None})
+        self.assertEqual(response.status, 401)
+        response, _ = self.request("GET", "/app.js", headers={"Cookie": None})
+        self.assertEqual(response.status, 200)  # public repository files only
+
+    def test_token_link_sets_strict_cookie_and_cleans_url(self):
+        response, _ = self.request("GET", f"/?token={TOKEN}", headers={"Cookie": None})
+        self.assertEqual(response.status, 303)
+        self.assertEqual(response.getheader("Location"), "/")
+        cookie = response.getheader("Set-Cookie")
+        self.assertTrue(cookie.startswith(f"averiguao_{self.port}={TOKEN};"))
+        for attribute in ("HttpOnly", "SameSite=Strict", "Path=/"):
+            self.assertIn(attribute, cookie)
+
+    def test_make_server_rejects_short_token(self):
+        with self.assertRaises(ValueError):
+            server_mod.make_server(self.store, self.runner, port=0, token="short")
 
     def test_security_headers_on_static_and_api(self):
         for path in ("/", "/app.js", "/style.css", "/themes.css", "/mucaro-mark.svg", "/api/health"):

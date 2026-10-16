@@ -1,6 +1,8 @@
 """Local HTTP API and static UI. Owner: reports/UI agent. Binds to 127.0.0.1 only.
 
-Security model (single local user): the Host header must name this loopback port (blocks DNS rebinding),
+Security model (single local user): every API call and the UI page need the per-process access token, which
+the CLI prints as part of the URL and the server turns into an HttpOnly, SameSite=Strict cookie (blocks other
+local users and processes, which can reach any loopback port). The Host header must name this loopback port (blocks DNS rebinding),
 an Origin header, when sent, must be this server (blocks cross-site requests), POST bodies must be
 ``application/json`` (forces a CORS preflight, which is never answered) and are size-capped. Responses carry
 a strict CSP, nosniff and no-store. Requests are never logged: queries and inventory are sensitive.
@@ -8,6 +10,7 @@ a strict CSP, nosniff and no-store. Requests are never logged: queries and inven
 
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import json
 import re
@@ -15,6 +18,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import reports
@@ -25,6 +29,7 @@ from .store import Store
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_BODY = 2 * 1024 * 1024
 MAX_PAGE = 200
+PAGES = {"/", "/index.html"}  # the UI page itself requires the access token
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -43,6 +48,12 @@ SORTS = {"rank", "value", "queue"}
 FLAG_RE = re.compile(r"[a-z_]{1,40}")
 DIMENSIONS = ("ownership", "operational_control", "hosting", "service_association")
 ROUGH_DOMAIN_EXPANSION = 20  # hostnames a typical domain seed yields; each costs ~3 queries (dns, rdap, internetdb)
+
+
+LOCKED_PAGE = (b"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Averiguao</title>"
+               b"</head><body><h1>Access token required</h1><p>Open the full link that Averiguao printed in the "
+               b"terminal when it started. It includes an access token, so other users and programs on this "
+               b"computer cannot read your findings.</p></body></html>")
 
 
 class ApiError(Exception):
@@ -89,6 +100,7 @@ class Handler(BaseHTTPRequestHandler):
     demo: bool = False
     demo_config: dict[str, Any] | None = None
     demo_expected: dict[str, Any] | None = None
+    token: str = ""
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass  # Inputs and query results are never written to the HTTP log.
@@ -102,6 +114,25 @@ class Handler(BaseHTTPRequestHandler):
         if origin is not None and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
             return False
         return self.headers.get("Sec-Fetch-Site", "same-origin") in {"same-origin", "none"}
+
+    def _cookie_name(self) -> str:
+        return f"averiguao_{self.server.server_address[1]}"  # cookies ignore ports; keep instances apart
+
+    def _authorized(self) -> bool:
+        try:
+            morsel = SimpleCookie(self.headers.get("Cookie", "")).get(self._cookie_name())
+        except CookieError:
+            return False
+        return morsel is not None and hmac.compare_digest(morsel.value.encode(), self.token.encode())
+
+    def _token_login(self, query: dict[str, list[str]]) -> bool:
+        """GET /?token=... with the right token sets the session cookie and redirects to a clean URL."""
+        supplied = (query.get("token") or [""])[0]
+        if not supplied or not hmac.compare_digest(supplied.encode(), self.token.encode()):
+            return False
+        cookie = f"{self._cookie_name()}={self.token}; Path=/; HttpOnly; SameSite=Strict"
+        self._headers(303, "text/plain; charset=utf-8", 0, extra={"Location": "/", "Set-Cookie": cookie})
+        return True
 
     def _headers(self, status: int, content_type: str, length: int | None = None,
                  extra: dict[str, str] | None = None) -> None:
@@ -164,6 +195,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parts = [unquote(p, errors="strict") for p in raw_parts]
             query = parse_qs(split.query, keep_blank_values=False, max_num_fields=20)
+            if parts[:1] == ["api"] and not self._authorized():
+                raise ApiError(401, "Access token required: open the link Averiguao printed when it started.")
             routes(parts, query)
         except ApiError as exc:
             self._json(exc.status, {"error": exc.message})
@@ -231,6 +264,10 @@ class Handler(BaseHTTPRequestHandler):
     # ---------------------------------------------------------------- GET
     def _get(self, parts: list[str], query: dict[str, list[str]]) -> None:
         path = "/" + "/".join(parts)
+        if path in PAGES and not self._authorized():
+            if self._token_login(query):
+                return None
+            return self._send(401, LOCKED_PAGE, "text/html; charset=utf-8")
         if path in STATIC and (len(parts) <= 1):
             name, mime = STATIC[path]
             return self._send(200, (WEB / name).read_bytes(), mime)
@@ -417,10 +454,13 @@ class Server(ThreadingHTTPServer):
             self._slots.release()
 
 
-def make_server(store: Store, runner: Any, *, port: int, demo: bool = False,
+def make_server(store: Store, runner: Any, *, port: int, token: str, demo: bool = False,
                 demo_config: dict[str, Any] | None = None,
                 demo_expected: dict[str, Any] | None = None) -> ThreadingHTTPServer:
-    """HTTP server on 127.0.0.1:port (0 picks a free port; read it from server.server_address)."""
-    handler = type("AveriguaoHandler", (Handler,), {"store": store, "runner": runner, "demo": demo,
+    """HTTP server on 127.0.0.1:port (0 picks a free port; read it from server.server_address).
+    `token` (at least 32 characters, e.g. secrets.token_urlsafe(32)) gates the UI page and every API call."""
+    if len(token) < 32:
+        raise ValueError("The access token must be at least 32 characters.")
+    handler = type("AveriguaoHandler", (Handler,), {"store": store, "runner": runner, "demo": demo, "token": token,
                                                     "demo_config": demo_config, "demo_expected": demo_expected})
     return Server(("127.0.0.1", port), handler)

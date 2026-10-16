@@ -24,7 +24,7 @@ function startServer() {
     const timer = setTimeout(() => reject(new Error(`server did not start: ${out}`)), 30000);
     child.stdout.on('data', chunk => {
       out += chunk;
-      const m = /READY (http:\/\/127\.0\.0\.1:\d+\/) ([0-9a-f]{32})/.exec(out);
+      const m = /READY (http:\/\/127\.0\.0\.1:\d+\/\?token=[\w-]+) ([0-9a-f]{32})/.exec(out);
       if (m) { clearTimeout(timer); resolve({ child, url: m[1], runId: m[2] }); }
     });
     child.stderr.on('data', chunk => { out += chunk; });

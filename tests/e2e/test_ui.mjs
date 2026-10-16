@@ -29,7 +29,7 @@ function startServer() {
     const timer = setTimeout(() => reject(new Error(`server did not start: ${out}`)), 15000);
     child.stdout.on('data', chunk => {
       out += chunk;
-      const match = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(out);
+      const match = /http:\/\/127\.0\.0\.1:(\d+)\/\?token=[\w-]+/.exec(out);
       if (match) { clearTimeout(timer); resolve({ child, url: match[0] }); }
     });
     child.stderr.on('data', chunk => { out += chunk; });
