@@ -50,7 +50,7 @@ Deduplication: one task per `(source, query)` per run, whichever seed reached it
 
 Limits: when recording a new hostname or ip would exceed `max_hostnames`/`max_addresses`, it is not recorded, its tasks are not created, and a `Truncation` is added/incremented. `max_queries` and `max_seconds` stop the run with remaining tasks marked `skipped` and a `Truncation`. A truncated run still **completes** (status `complete`, `truncated` non-empty) so its findings are usable; the UI and every report show the truncation prominently. Source errors are counted per source and listed as `source_failures` in reports.
 
-Out-of-scope decisions (`DENY`) are counted per reason in run metadata `out_of_scope` (`{"ct_name_outside_approved_domains": 12, "depth_limit": 3}`), so the boundary is visible.
+Out-of-scope decisions (`DENY`) are counted per reason in run metadata `out_of_scope` (`{"ct_name_outside_approved_domains": 12, "depth_limit": 3}`; names that fail normalization count as `invalid_name`). A hostname recorded from InternetDB takes the depth of its ip and is never resolved, so the boundary is visible.
 
 ## 3. Attribution (per candidate asset)
 
