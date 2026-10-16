@@ -5,89 +5,245 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Múcaro | Averiguao</title>
   <link rel="icon" type="image/svg+xml" href="/mucaro-mark.svg">
-  <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/themes.css">
+  <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#run-card">Skip to results</a>
   <header class="site-header">
-    <div class="brand"><img class="brand-mark" src="/mucaro-mark.svg" alt=""><span>Múcaro</span><span class="brand-divider" aria-hidden="true">|</span><small>Averiguao</small></div>
-    <div class="header-tools"><label for="theme">Theme</label><select id="theme" aria-label="Theme"><option value="soc">SOC Dark</option><option value="nord">Nord Calm</option><option value="contrast">High Contrast</option><option value="matrix">Matrix</option><option value="mucaro">Mucaro Dusk</option><option value="notebook">Field Notebook</option><option value="amber">Terminal Amber</option></select><span class="badge">Local · Passive lookups</span></div>
+    <div class="brand">
+      <img class="brand-mark" src="/mucaro-mark.svg" alt="">
+      <span>Múcaro</span><span class="brand-divider" aria-hidden="true">|</span><small>Averiguao</small>
+    </div>
+    <div class="header-tools">
+      <label for="theme">Theme</label>
+      <select id="theme">
+        <option value="soc">SOC Dark</option>
+        <option value="nord">Nord Calm</option>
+        <option value="contrast">High Contrast</option>
+        <option value="matrix">Matrix</option>
+        <option value="mucaro">Mucaro Dusk</option>
+        <option value="notebook">Field Notebook</option>
+        <option value="amber">Terminal Amber</option>
+      </select>
+      <span class="badge">Local · Passive sources</span>
+    </div>
   </header>
+
+  <div id="demo-banner" class="demo-banner hidden" role="note">
+    <strong>Demo data — synthetic world, no network.</strong>
+    <span>Every source answer is generated locally; nothing here describes a real organization.</span>
+  </div>
+
   <main>
     <section class="intro">
-      <p class="eyebrow">APPROVED ADDRESS SPACE</p>
-      <h1>See what public sources have observed.</h1>
-      <p>Review InternetDB records for your IPs and ranges. Every result keeps its seed range, retrieval time, and inventory comparison.</p>
+      <p class="eyebrow">APPROVED SCOPE · PASSIVE EVIDENCE</p>
+      <h1>Find public infrastructure your inventory does not explain.</h1>
+      <p>Start from approved domains and address space. Every finding keeps its path from a seed, the evidence for each hop, and four separate assessments: ownership, operational control, hosting and service association.</p>
     </section>
+
     <div class="layout">
-      <aside>
-        <section class="card">
-          <div class="section-heading"><span class="step">01</span><h2>Inventory baseline</h2></div>
-          <p class="hint">Optional known addresses or ranges. CSV format: <code>IP_or_CIDR,label</code>.</p>
-          <label for="inventory-file">Choose CSV file</label>
-          <input id="inventory-file" type="file" accept=".csv,text/csv,text/plain">
-          <label for="inventory-text">Or paste entries</label>
-          <textarea id="inventory-text" rows="4" placeholder="8.8.8.8,Example known address"></textarea>
-          <button id="save-inventory" class="secondary">Save inventory</button>
-          <p id="inventory-state" class="subtle" role="status">No inventory loaded yet.</p>
-        </section>
-        <section class="card">
-          <div class="section-heading"><span class="step">02</span><h2>Start a lookup</h2></div>
-          <p class="hint">Enter one approved public IPv4 address or CIDR. Large ranges run in resumable batches.</p>
-          <label for="seed">IP address or range</label>
-          <input id="seed" type="text" spellcheck="false" placeholder="8.8.8.0/24">
-          <div class="actions">
-            <button id="preview" class="secondary">Preview range</button>
-            <button id="start" disabled>Start lookup</button>
+      <aside class="sidebar" aria-label="Setup">
+        <section class="card" aria-labelledby="inv-heading">
+          <div class="section-heading"><span class="step">01</span><h2 id="inv-heading">Inventory baseline</h2></div>
+          <div id="inv-summary" class="inv-summary" role="status">
+            <p class="muted">Loading inventory…</p>
           </div>
-          <div id="preview-result" class="preview muted" role="status">Preview the range to see its size before starting.</div>
-          <p class="subtle">A missing InternetDB record means “not observed in this source,” not “no exposure.”</p>
+          <details id="inv-entries" class="disclosure hidden">
+            <summary>View entries</summary>
+            <div class="entries-wrap">
+              <table class="entries-table">
+                <caption class="visually-hidden">Entries in the current inventory snapshot</caption>
+                <thead><tr><th scope="col">Value</th><th scope="col">Kind</th><th scope="col">Label</th></tr></thead>
+                <tbody id="inv-entries-body"></tbody>
+              </table>
+              <p id="inv-entries-note" class="subtle hidden"></p>
+            </div>
+          </details>
+          <details class="disclosure" id="inv-import">
+            <summary>Import a new snapshot</summary>
+            <p class="hint">CSV <code>value,label</code>: IPv4 address, CIDR, hostname, or <code>*.example.com</code> for a whole domain. Each import becomes a new snapshot; earlier ones are kept.</p>
+            <label for="inventory-file">CSV file</label>
+            <input id="inventory-file" type="file" accept=".csv,text/csv,text/plain">
+            <label for="inventory-text">Or paste entries</label>
+            <textarea id="inventory-text" rows="4" spellcheck="false" placeholder="198.51.100.0/24,web tier&#10;*.example.com,corporate domains"></textarea>
+            <div class="field-row">
+              <div>
+                <label for="inventory-label">Snapshot label</label>
+                <input id="inventory-label" type="text" maxlength="200" placeholder="CMDB export">
+              </div>
+              <div>
+                <label for="inventory-asof">As of (optional)</label>
+                <input id="inventory-asof" type="date">
+              </div>
+            </div>
+            <div class="actions"><button id="save-inventory" type="button" class="secondary">Save snapshot</button></div>
+            <p id="inventory-state" class="subtle" role="status" aria-live="polite"></p>
+          </details>
         </section>
-        <section class="card">
-          <div class="section-heading"><span class="step">03</span><h2>Saved jobs</h2></div>
-          <div id="jobs" class="job-list"><p class="muted">No jobs yet.</p></div>
+
+        <section class="card" aria-labelledby="run-form-heading">
+          <div class="section-heading"><span class="step">02</span><h2 id="run-form-heading">New run</h2></div>
+          <form id="run-form" novalidate>
+            <label for="seeds">Seeds <span class="label-note">one per line: domain, IPv4 address or CIDR</span></label>
+            <textarea id="seeds" rows="4" spellcheck="false" required aria-describedby="seeds-hint" placeholder="example.com&#10;198.51.100.0/28"></textarea>
+            <p id="seeds-hint" class="hint">Only seeds you are authorized to investigate. Up to 50.</p>
+            <label for="approval-ref">Approval reference <span class="label-note">required</span></label>
+            <input id="approval-ref" type="text" maxlength="200" required placeholder="Ticket, letter or contract id">
+            <label for="org-names">Organization names <span class="label-note">comma separated</span></label>
+            <input id="org-names" type="text" aria-describedby="org-hint" placeholder="Example Corp, Example Corporation">
+            <p id="org-hint" class="hint">Matched against RDAP registrations. Without them, IP ownership can never be supported.</p>
+            <label for="run-label">Label</label>
+            <input id="run-label" type="text" maxlength="200" placeholder="Q4 external review">
+            <details class="disclosure" id="limits">
+              <summary>Limits &amp; match rules</summary>
+              <div class="limits-grid">
+                <div><label for="lim-max_depth">Max depth (1–3)</label><input id="lim-max_depth" type="number" min="1" max="3" value="2"></div>
+                <div><label for="lim-max_hostnames">Max hostnames</label><input id="lim-max_hostnames" type="number" min="1" value="500"></div>
+                <div><label for="lim-max_addresses">Max addresses</label><input id="lim-max_addresses" type="number" min="1" value="4096"></div>
+                <div><label for="lim-max_queries">Max queries</label><input id="lim-max_queries" type="number" min="1" max="200000" value="10000"></div>
+                <div><label for="lim-max_seconds">Max seconds</label><input id="lim-max_seconds" type="number" min="1" max="86400" value="3600"></div>
+                <div><label for="lim-max_prefix_addresses">Largest prefix</label><input id="lim-max_prefix_addresses" type="number" min="1" max="65536" value="4096"></div>
+              </div>
+              <fieldset class="checks">
+                <legend>Inventory match rules</legend>
+                <label class="check"><input id="rule-exact" type="checkbox" checked disabled> Exact match (always on)</label>
+                <label class="check"><input id="rule-prefix" type="checkbox" checked> IP inside an inventoried CIDR counts as Known</label>
+                <label class="check"><input id="rule-domain" type="checkbox"> Hostname under a <code>*.domain</code> entry counts as Known</label>
+              </fieldset>
+            </details>
+            <div class="actions">
+              <button id="preview" type="submit" class="secondary">Preview</button>
+              <button id="start" type="button" disabled>Start run</button>
+            </div>
+            <div id="preview-result" class="preview" role="status" aria-live="polite">
+              <p class="muted">Preview validates the scope and estimates the number of source queries.</p>
+            </div>
+          </form>
+        </section>
+
+        <section class="card" aria-labelledby="runs-heading">
+          <div class="section-heading"><span class="step">03</span><h2 id="runs-heading">Runs</h2></div>
+          <ul id="runs" class="run-list" aria-label="Runs, newest first"><li class="muted">No runs yet.</li></ul>
         </section>
       </aside>
+
       <div class="main-column">
-        <section class="card results-card">
+        <section id="run-card" class="card results-card" aria-labelledby="run-title" tabindex="-1">
           <div class="results-top">
-            <div><p class="eyebrow">INVESTIGATION</p><h2 id="job-title">Select a job</h2></div>
-            <div id="job-actions" class="actions hidden">
-              <button id="pause" class="secondary hidden">Pause</button>
-              <button id="resume" class="secondary hidden">Resume</button>
-              <a id="csv-link" class="button-link" href="#">Export CSV</a>
-              <a id="json-link" class="button-link" href="#">Export JSON</a>
+            <div class="run-heading">
+              <p class="eyebrow">INVESTIGATION</p>
+              <h2 id="run-title">Select a run</h2>
+              <p id="run-meta" class="subtle run-meta"></p>
+            </div>
+            <div id="run-actions" class="actions hidden">
+              <button id="pause" type="button" class="secondary hidden">Pause</button>
+              <button id="resume" type="button" class="secondary hidden">Resume</button>
+              <button id="reassess" type="button" class="secondary hidden" title="Recompute findings against the current inventory snapshot (no new queries)">Reassess vs. current inventory</button>
+              <a id="export-json" class="button-link" href="#" download>JSON</a>
+              <a id="export-csv" class="button-link" href="#" download>CSV</a>
+              <a id="export-md" class="button-link" href="#" download>Markdown</a>
             </div>
           </div>
+          <p id="action-message" class="action-message hidden" role="status" aria-live="polite"></p>
+
           <div id="empty-state" class="empty-state">
-            <div class="empty-icon">◎</div>
-            <strong>Results will appear here</strong>
-            <p>Import a baseline, preview a public range, and start a lookup.</p>
+            <div class="empty-icon" aria-hidden="true">◎</div>
+            <strong>Findings will appear here</strong>
+            <p>Load an inventory baseline, preview your approved seeds, and start a run.</p>
           </div>
-          <div id="job-panel" class="hidden">
-            <div class="stats">
-              <div><span class="stat-label">Checked</span><strong id="checked">0</strong></div>
-              <div><span class="stat-label">With records</span><strong id="found">0</strong></div>
-              <div><span class="stat-label">No record</span><strong id="no-record">0</strong></div>
-              <div><span class="stat-label">Errors</span><strong id="errors">0</strong></div>
+
+          <div id="run-panel" class="hidden">
+            <div id="warnings" class="warnings" role="alert"></div>
+            <div class="progress-wrap">
+              <progress id="progress" max="1" value="0" aria-labelledby="progress-text"></progress>
+              <div class="progress-meta"><span id="run-status-text">Queued</span><span id="progress-text"></span></div>
             </div>
-            <div class="progress-line"><div id="progress-bar"></div></div>
-            <div class="progress-meta"><span id="job-status">Queued</span><span id="progress-text">0%</span></div>
-            <p id="job-warning" class="warning hidden" role="alert"></p>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>IP address</th><th>Observed ports</th><th>Inventory</th><th>Retrieved</th><th>Details</th></tr></thead>
-                <tbody id="results"><tr><td colspan="5" class="muted">No records in the checked portion yet.</td></tr></tbody>
-              </table>
+
+            <div class="chips" role="group" aria-label="Filter by queue">
+              <button type="button" class="chip" data-queue="" aria-pressed="true"><span class="chip-label">All</span><strong data-count="all">0</strong></button>
+              <button type="button" class="chip chip-new" data-queue="new" aria-pressed="false"><span class="chip-label">New</span><strong data-count="new">0</strong></button>
+              <button type="button" class="chip chip-unexplained" data-queue="unexplained" aria-pressed="false"><span class="chip-label">Unexplained</span><strong data-count="unexplained">0</strong></button>
+              <button type="button" class="chip chip-third_party" data-queue="third_party" aria-pressed="false"><span class="chip-label">Third-party</span><strong data-count="third_party">0</strong></button>
+              <button type="button" class="chip chip-known" data-queue="known" aria-pressed="false"><span class="chip-label">Known</span><strong data-count="known">0</strong></button>
             </div>
-            <div class="pagination"><button id="prev" class="secondary" disabled>Previous</button><span id="page-label">Page 1</span><button id="next" class="secondary" disabled>Next</button></div>
-            <div id="detail" class="detail hidden"></div>
+
+            <div class="tabs" role="tablist" aria-label="Run views">
+              <button type="button" role="tab" id="tab-findings" aria-selected="true" aria-controls="panel-findings">Findings</button>
+              <button type="button" role="tab" id="tab-coverage" aria-selected="false" aria-controls="panel-coverage" tabindex="-1" class="hidden">Prefix coverage</button>
+            </div>
+
+            <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+              <div class="filters">
+                <div><label for="f-type">Type</label>
+                  <select id="f-type"><option value="">All types</option><option value="hostname">Hostname</option><option value="ip">IP address</option></select></div>
+                <div><label for="f-flag">Flag</label>
+                  <select id="f-flag">
+                    <option value="">Any flag</option>
+                    <option value="conflict">Conflict</option>
+                    <option value="inventory_match_indeterminate">Inventory match indeterminate</option>
+                    <option value="stale_evidence">Stale evidence</option>
+                    <option value="no_resolution">No resolution</option>
+                    <option value="source_error">Source error</option>
+                    <option value="potential_vulns">Potential vulns</option>
+                    <option value="truncated_run">Truncated run</option>
+                  </select></div>
+                <div class="grow"><label for="f-q">Search</label><input id="f-q" type="search" placeholder="Value contains…" maxlength="200"></div>
+                <div><label for="f-sort">Sort</label>
+                  <select id="f-sort"><option value="rank">Rank</option><option value="value">Value</option><option value="queue">Queue</option></select></div>
+              </div>
+              <div class="table-wrap">
+                <table class="findings">
+                  <caption class="visually-hidden">Findings for the selected run</caption>
+                  <thead><tr>
+                    <th scope="col">Value</th><th scope="col">Type</th><th scope="col">Queue</th><th scope="col">Role</th>
+                    <th scope="col"><abbr title="Ownership · Operational control · Hosting · Service association">O · C · H · S</abbr></th>
+                    <th scope="col">Flags</th><th scope="col" class="num">Rank</th>
+                  </tr></thead>
+                  <tbody id="findings"></tbody>
+                </table>
+              </div>
+              <div class="pagination">
+                <button id="prev" type="button" class="secondary" disabled>Previous</button>
+                <span id="page-label" aria-live="polite">Page 1</span>
+                <button id="next" type="button" class="secondary" disabled>Next</button>
+              </div>
+              <p class="legend subtle">Assessment badges: <span class="assess supported">+</span> supported, <span class="assess contradicted">−</span> contradicted, <span class="assess unresolved">?</span> unresolved.</p>
+            </div>
+
+            <div id="panel-coverage" role="tabpanel" aria-labelledby="tab-coverage" class="hidden">
+              <p class="hint">Every address of a prefix seed that was checked, including those with no record. “No record” means not observed by that source, not “no exposure”.</p>
+              <div class="table-wrap">
+                <table class="coverage">
+                  <caption class="visually-hidden">Prefix coverage</caption>
+                  <thead><tr><th scope="col">IP address</th><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Retrieved</th></tr></thead>
+                  <tbody id="coverage"></tbody>
+                </table>
+              </div>
+              <div class="pagination">
+                <button id="cov-prev" type="button" class="secondary" disabled>Previous</button>
+                <span id="cov-page-label" aria-live="polite">Page 1</span>
+                <button id="cov-next" type="button" class="secondary" disabled>Next</button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
     </div>
   </main>
-  <footer>Passive public observations are historical and incomplete. The application never contacts investigated hosts.</footer>
+
+  <aside id="drawer" class="drawer hidden" role="dialog" aria-modal="false" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow" id="drawer-eyebrow">FINDING</p>
+        <h2 id="drawer-title" tabindex="-1">Finding</h2>
+      </div>
+      <button id="drawer-close" type="button" class="secondary icon-button" aria-label="Close finding details">✕</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+
+  <footer>Passive public observations are historical and incomplete. Averiguao never contacts the investigated hosts. A discovery relationship is not an ownership claim.</footer>
 </body>
 </html>

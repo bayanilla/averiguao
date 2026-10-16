@@ -20,6 +20,7 @@ _clock = time.monotonic
 DENY_CT_OUT_OF_SCOPE = "ct_name_outside_approved_domains"
 DENY_DEPTH = "depth_limit"
 DENY_INVALID_NAME = "invalid_name"
+DENY_NON_GLOBAL = "non_global_address"
 
 
 def _now_iso() -> str:
@@ -316,6 +317,9 @@ class _Handler:
                 ip = str(ipaddress.IPv4Address(str(addr)))
             except ValueError:
                 continue
+            if non_global_address(ip):
+                batch.deny(DENY_NON_GLOBAL)  # CONTEXT: stays in the DNS evidence, never sent to a source
+                continue
             if new_depth > self.config.limits.max_depth:
                 batch.deny(DENY_DEPTH)
                 continue
@@ -344,16 +348,34 @@ def _rdap_covered(ip: str, cache: list[ipaddress.IPv4Network]) -> bool:
     return any(addr in net for net in cache)
 
 
-def _cidrs_of(ev_data: dict[str, Any]) -> list[ipaddress.IPv4Network]:
+def _cidrs_of(ev_data: dict[str, Any], query: str | None = None) -> list[ipaddress.IPv4Network]:
+    """Cacheable cidrs of an RDAP answer: IPv4, no larger than a /8, and containing the queried address."""
+    try:
+        addr = ipaddress.IPv4Address(query) if query is not None else None
+    except ValueError:
+        return []
     out = []
     for c in ev_data.get("cidrs") or []:
         try:
             net = ipaddress.ip_network(str(c), strict=False)
         except ValueError:
             continue
-        if isinstance(net, ipaddress.IPv4Network):
-            out.append(net)
+        if not isinstance(net, ipaddress.IPv4Network) or net.prefixlen < 8:
+            continue
+        if addr is None or addr not in net:
+            continue
+        out.append(net)
     return out
+
+
+def non_global_address(ip: str) -> bool:
+    """Special-purpose IPv4 space (scope.SPECIAL_PURPOSE_NETWORKS), documentation ranges excepted."""
+    from .scope import DOCUMENTATION_NETWORKS, SPECIAL_PURPOSE_NETWORKS
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return False
+    return any(addr in block for block, _name in SPECIAL_PURPOSE_NETWORKS if block not in DOCUMENTATION_NETWORKS)
 
 
 # --------------------------------------------------------------------------- main loop
@@ -406,35 +428,54 @@ def execute(store: Store, run_id: str, connectors: dict[SourceName, Connector], 
                 account_time()
                 return "done"
 
-            # Decide, in task order, which tasks are cache hits and which need a (budgeted) connector call.
+            # Walk tasks in order. Non-rdap calls run concurrently; rdap tasks are decided one at a time, after every
+            # earlier rdap call of this batch has answered, so a later address inside an earlier answer's network
+            # reuses it (deterministic, and the same however the batch's calls complete).
             rdap_cache: list[ipaddress.IPv4Network] = []
             for ev in store.rdap_cache(run_id):
-                rdap_cache.extend(_cidrs_of(ev.data))
+                rdap_cache.extend(_cidrs_of(ev.data, ev.query))
             budget = limits.max_queries - queries_used
-            plan: list[tuple[dict[str, Any], bool]] = []  # (task, needs_call)
+            plan: list[dict[str, Any]] = []
+            futures: dict[int, Any] = {}
+            pending_rdap: list[dict[str, Any]] = []
+            results: dict[int, SourceResult | None] = {}
             over_budget = False
+
+            def drain_rdap() -> None:
+                for rt in pending_rdap:
+                    res = _safe_result(futures[rt["id"]], rt)
+                    results[rt["id"]] = res
+                    if res.status == "ok":
+                        rdap_cache.extend(_cidrs_of(res.data, rt["query"]))
+                pending_rdap.clear()
+
             for t in tasks:
-                if t["source"] == "rdap" and _rdap_covered(t["query"], rdap_cache):
-                    plan.append((t, False))
-                    continue
+                if t["source"] == "rdap":
+                    drain_rdap()
+                    if _rdap_covered(t["query"], rdap_cache):
+                        plan.append(t)
+                        results[t["id"]] = None
+                        continue
                 if t["source"] not in connectors:
                     raise ValueError(f"no connector for source {t['source']!r}")
                 if budget <= 0:
                     over_budget = True
                     break
                 budget -= 1
-                plan.append((t, True))
-
-            futures = {t["id"]: pool.submit(connectors[t["source"]].fetch, t["query"]) for t, call in plan if call}
-            results: dict[int, SourceResult | None] = {}
-            for t, call in plan:
-                results[t["id"]] = _safe_result(futures[t["id"]], t) if call else None
+                plan.append(t)
+                futures[t["id"]] = pool.submit(connectors[t["source"]].fetch, t["query"])
+                if t["source"] == "rdap":
+                    pending_rdap.append(t)
+            drain_rdap()
+            for t in plan:
+                if t["id"] not in results:
+                    results[t["id"]] = _safe_result(futures[t["id"]], t)
 
             batch = _Batch(store, run_id, config)
             batch.queries = len(futures)
-            for t, _call in plan:  # apply strictly in task id order
+            for t in plan:  # apply strictly in task id order
                 handler.apply(batch, t, results[t["id"]])
-            batch.commit([t["id"] for t, _ in plan])
+            batch.commit([t["id"] for t in plan])
             queries_used += len(futures)
             account_time()
 

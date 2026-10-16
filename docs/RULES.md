@@ -40,9 +40,10 @@ Result handling (all names normalized; a name is **in scope** when it equals or 
 | --- | --- | --- |
 | `ct` names | `certificate_mentions_hostname` domain → hostname, evidence = that certificate | Wildcard `*.x` is reduced to `x`. In scope and new depth ≤ max_depth → **EXPAND** (task `dns name`). Out of scope (other tenants on a shared certificate, look-alike domains) → **DENY**. If the reduced name equals the seed domain, nothing new. |
 | `dns` addresses | `hostname_resolves_to_ip` (from `domain:` or `hostname:` asset) → ip | Depth ≤ max_depth → **RECORD** + enrichment tasks `rdap`, `internetdb` for the ip. Depth > max_depth → **DENY** (`depth_limit`). |
+| `dns` addresses in special-purpose space (private, loopback, link-local, CGNAT, multicast, reserved, broadcast, `0.0.0.0/8`; documentation ranges excepted so the synthetic world works) | nothing; the addresses stay in the DNS evidence | **CONTEXT** (`non_global_address`). Never recorded as candidates and never sent to any source. The hostname gets flag `non_global_address` (public DNS exposing internal addressing is itself worth review). |
 | `dns` cnames | no relationship; the chain stays in the DNS evidence `data.cnames` | **CONTEXT** (used by attribution) |
 | `internetdb` hostnames on an ip | `ip_reports_hostname` ip → hostname | In scope → **RECORD** (candidate, no DNS task). Out of scope → **CONTEXT** (other tenants of shared hosting stay on the ip's evidence only). |
-| `rdap` | enrichment evidence on the ip | **CONTEXT**. The RDAP result is cached per run by its `cidrs`: an ip inside an already-fetched RDAP network reuses that evidence without a query. |
+| `rdap` | enrichment evidence on the ip | **CONTEXT**. The RDAP result is cached per run by its `cidrs`: an ip inside an already-fetched RDAP network reuses that evidence without a query, including within the same batch (the first answer is reused by later tasks in task order). A cidr is only cached if it contains the address that was queried and is no larger than a /8; otherwise the answer is used for that address alone. |
 
 Enrichment never increases depth and never creates further tasks. No source is ever asked about an address or name the engine did not reach through these rules: no neighbour addresses, no covering or adjacent prefixes, no names from out-of-scope certificates.
 
@@ -93,7 +94,7 @@ For each candidate, against the run's snapshot, first rule that applies:
 
 ## 5. Flags
 
-`conflict`, `inventory_match_indeterminate`, `stale_evidence` (the asset has at least one `ok` observation from ct/dns/internetdb, and every such observation has a `valid_to` before the run's completion time; observations without `valid_to`, such as DNS answers, count as current; seed evidence and no_record/error results are ignored), `no_resolution` (a DNS query for the hostname was made and returned no_record; hostnames recorded only from InternetDB are never resolved and do not get this flag), `source_error` (a source call about this asset failed), `potential_vulns` (InternetDB listed vulns), `truncated_run` (the run hit a limit).
+`conflict`, `inventory_match_indeterminate`, `stale_evidence` (the asset has at least one `ok` observation from ct/dns/internetdb, and every such observation has a `valid_to` before the run's completion time; observations without `valid_to`, such as DNS answers, count as current; seed evidence and no_record/error results are ignored), `no_resolution` (a DNS query for the hostname was made and returned no_record; hostnames recorded only from InternetDB are never resolved and do not get this flag), `source_error` (a source call about this asset failed), `potential_vulns` (InternetDB listed vulns), `non_global_address` (hostname resolves to special-purpose space), `truncated_run` (the run hit a limit).
 
 DNS evidence has `valid_from`/`valid_to` = None (the TTL stays in `data`). RDAP and InternetDB evidence also have no validity period.
 

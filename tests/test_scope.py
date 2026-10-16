@@ -459,6 +459,43 @@ class SpecialPurposeCoverageTests(unittest.TestCase):
         for s in ("com", "co.uk", "test", "example", "localhost"):
             self.assertIn(s, PUBLIC_SUFFIXES)
 
+    def test_second_level_and_private_suffixes_rejected_as_seeds(self):
+        rejected = ("com.ar", "co.za", "com.tr", "co.kr", "ac.jp", "gov.br", "or.jp", "ne.jp", "go.kr", "co.id",
+                    "com.ng", "edu.pk", "gob.mx", "net.in", "org.ua", "mil.br", "co.nz", "com.vn",
+                    "github.io", "gitlab.io", "herokuapp.com", "azurewebsites.net", "cloudfront.net",
+                    "amazonaws.com", "appspot.com", "firebaseapp.com", "web.app", "pages.dev", "workers.dev",
+                    "netlify.app", "vercel.app", "blogspot.com", "wordpress.com", "s3.amazonaws.com",
+                    "cloudapp.net", "trafficmanager.net", "azureedge.net", "fastly.net", "myshopify.com")
+        for text in rejected:
+            with self.subTest(text=text):
+                with self.assertRaises(ScopeError) as cm:
+                    parse_seeds(text.upper() + ".", REF)
+                self.assertIn("public suffix", str(cm.exception))
+        for text in ("example.com.ar", "acme.co.za", "acme.github.io", "shop.myshopify.com", "acme.co.kr",
+                     "google.com", "bbc.co.uk", "or.de", "go.com"):
+            with self.subTest(text=text):
+                self.assertEqual(parse_seeds(text, REF)[0].value, text)
+
+    def test_private_suffix_inventory_tree_rejected(self):
+        with self.assertRaises(ScopeError):
+            parse_inventory("*.github.io,x\n")
+        self.assertEqual(parse_inventory("*.acme.github.io,x\n").entries[0].value, "acme.github.io")
+
+    def test_is_special_purpose(self):
+        from averiguao_core.scope import is_special_purpose
+        for ip in ("10.0.0.1", "192.168.1.1", "100.64.0.1", "127.0.0.1", "224.0.0.5", "255.255.255.255",
+                   "192.0.0.8", "0.0.0.0", "11.0.0.0/7", "192.168.0.0/15", "2001:db8::1", "bogus", ""):
+            with self.subTest(ip=ip):
+                self.assertTrue(is_special_purpose(ip))
+        for ip in ("8.8.8.8", "1.1.1.1", "8.8.8.0/24", "100.128.0.1"):
+            with self.subTest(ip=ip):
+                self.assertFalse(is_special_purpose(ip))
+        for ip in ("198.51.100.7", "203.0.113.0/24", "192.0.2.1"):
+            with self.subTest(ip=ip):
+                self.assertTrue(is_special_purpose(ip))
+                self.assertFalse(is_special_purpose(ip, allow_documentation_ranges=True))
+        self.assertTrue(is_special_purpose("10.0.0.1", allow_documentation_ranges=True))
+
 
 class PropertyTests(unittest.TestCase):
     def test_random_cidrs(self):

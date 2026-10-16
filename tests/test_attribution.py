@@ -255,6 +255,13 @@ class TestIpAssertions(unittest.TestCase):
         w.assess()
         self.assertEqual(w.A("ip:198.51.100.9", "ownership").assessment, "supported")
 
+    def test_non_global_flag(self):
+        w = World()
+        w.hostname("int.example.com", addresses=["10.0.0.5"])
+        w.assets = [r for r in w.assets if r["asset"].id != "ip:10.0.0.5"]
+        w.assess()
+        self.assertIn("non_global_address", w.f["hostname:int.example.com"].flags)
+
     def test_control_mixed_paths_conflict(self):
         w = World()
         w.hostname("a.example.com", addresses=["203.0.113.5"], cnames=["x.cdn.test"])

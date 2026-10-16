@@ -148,7 +148,7 @@ class TestResultHandling(EngineCase):
         self.assertFalse([k for k in rels if "lb.example.com" in k[2]])  # CNAME: no relationship
         dns = [e for e in store.evidence(run_id) if e.source == "dns"][0]
         self.assertEqual(dns.data["cnames"], ["lb.example.com"])
-        self.assertEqual(sorted(w["rdap"].queries()), ["198.51.100.2", "198.51.100.3"])  # same batch: cache only applies to later batches
+        self.assertEqual(w["rdap"].queries(), ["198.51.100.2"])  # same batch: .3 reuses the earlier answer
         self.assertEqual(sorted(w["internetdb"].queries()), ["198.51.100.2", "198.51.100.3"])
 
     def test_depth_limit(self):
@@ -175,6 +175,26 @@ class TestResultHandling(EngineCase):
         rel = self.rels(store, run_id)[("ip:198.51.100.7", "ip_reports_hostname", "hostname:vpn.example.com")]
         self.assertEqual(rel.depth, 1)  # enrichment never increases depth
         self.assertEqual(store.run(run_id)["out_of_scope"], {})  # out-of-scope tenant is CONTEXT, not DENY
+
+    def test_non_global_dns_answers_are_context_only(self):
+        w = world(dns={"example.com": a("example.com", ["10.1.2.3", "169.254.1.1", "100.64.0.1", "198.51.100.2"])})
+        store, run_id = self.run_world("example.com", w)
+        self.assertEqual(self.asset_ids(store, run_id), {"domain:example.com", "ip:198.51.100.2"})
+        asked = set(w["rdap"].queries() + w["internetdb"].queries())
+        self.assertEqual(asked, {"198.51.100.2"})
+        self.assertEqual(store.run(run_id)["out_of_scope"], {"non_global_address": 3})
+
+    def test_rdap_cache_requires_containing_cidr_and_at_most_slash8(self):
+        bad = {"handle": "X", "network_name": "X", "cidrs": ["198.51.100.0/24", "0.0.0.0/0"], "org_names": ["X"],
+               "entity_handles": []}
+        w = world(dns={"example.com": a("example.com", ["203.0.113.50", "198.51.100.9", "203.0.113.51"])},
+                  rdap={"203.0.113.50": bad, "198.51.100.9": CORP_RDAP})
+        store, run_id = self.run_world("example.com", w, batch_size=1, workers=1)
+        self.assertEqual(w["rdap"].queries(), ["203.0.113.50", "198.51.100.9", "203.0.113.51"])
+        attribution.assess_run(store, run_id)
+        own = {x.id: x for x in store.assertions(run_id)}
+        self.assertEqual(own["as:ip:198.51.100.9:hosting"].value, "Corp")
+        self.assertEqual(own["as:ip:203.0.113.51:hosting"].assessment, "unresolved")
 
     def test_source_errors_are_evidence(self):
         w = world(ct={"example.com": "error"}, dns={"example.com": "error"})

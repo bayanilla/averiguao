@@ -68,10 +68,84 @@ DOCUMENTATION_NETWORKS: frozenset[ipaddress.IPv4Network] = frozenset(
     ipaddress.IPv4Network(c) for c in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
 )
 
-PUBLIC_SUFFIXES: frozenset[str] = frozenset("""
-com net org edu gov io co uk co.uk org.uk ac.uk gov.uk com.au net.au de fr jp co.jp br com.br in co.in es it nl eu
-ca us mx com.mx pr cn com.cn ru info biz app dev cloud test example invalid localhost
-""".split())
+# Public suffixes: names under which unrelated parties register domains. A seed equal to one of these would put
+# every tenant in scope, so it is rejected. Not the full Public Suffix List; a readable, conservative subset.
+GENERIC_TLDS = """
+com net org edu gov mil int io co info biz app dev cloud xyz online site top shop store tech me tv cc ws mobi name
+pro asia tel travel jobs museum aero coop eu test example invalid localhost local internal arpa onion
+""".split()
+
+# Country-code TLDs of the most populous / most online countries (and a few common registries).
+COUNTRY_TLDS = """
+ae ar at au bd be bg br by ca ch cl cn co cz de dk dz eg es et fi fr gh gr hk hu id ie il in iq ir it jp ke kr kz
+lk ma mm mx my ng nl no np nz pe ph pk pl pr pt qa ro rs ru sa se sg sk th tn tr tw tz ua ug uk us uy ve vn za zw
+""".split()
+
+# Second-level labels used as public registration spaces under (most of) the country codes above.
+COMMON_SECOND_LEVELS = "com net org gov edu ac co mil".split()
+
+# Second levels that only some registries use; listed per country to avoid rejecting real domains elsewhere.
+EXTRA_SECOND_LEVELS = {
+    "jp": "or ne go ad ed gr lg",
+    "kr": "or ne go re pe",
+    "th": "or go in",
+    "id": "or go web sch my biz",
+    "ke": "or go ne",
+    "tz": "or go ne",
+    "ug": "or go ne",
+    "at": "or gv",
+    "uk": "ltd plc me nhs police sch",
+    "au": "id asn",
+    "nz": "geek school",
+    "br": "art blog eco emp ind inf jus leg log tur",
+    "in": "firm gen ind res",
+    "za": "web",
+    "tr": "bel biz info k12 pol tv web",
+    "cn": "ah bj gd sh zj",
+    "tw": "idv game ebiz club",
+    "hk": "idv",
+    "mx": "gob",
+    "ar": "gob int",
+    "pe": "gob nom",
+    "cl": "gob",
+    "ve": "gob web",
+    "es": "nom gob",
+    "pl": "biz info waw",
+    "ru": "msk spb",
+    "ua": "kiev in",
+    "il": "muni",
+    "pk": "gob gok gon gop gos biz fam web",
+    "ng": "name sch",
+    "eg": "sci",
+    "ph": "ngo",
+    "vn": "biz info",
+    "my": "name",
+    "sg": "per",
+}
+
+# Well-known hosting/platform suffixes where third parties get their own subdomains.
+PRIVATE_SUFFIXES = """
+github.io gitlab.io herokuapp.com herokudns.com azurewebsites.net cloudapp.net cloudapp.azure.com
+trafficmanager.net azureedge.net azurefd.net azurestaticapps.net blob.core.windows.net windows.net
+cloudfront.net amazonaws.com s3.amazonaws.com elasticbeanstalk.com awsapprunner.com
+appspot.com firebaseapp.com web.app run.app cloudfunctions.net googleusercontent.com
+pages.dev workers.dev netlify.app netlify.com vercel.app now.sh fly.dev onrender.com glitch.me
+blogspot.com wordpress.com wpengine.com myshopify.com squarespace.com wixsite.com tumblr.com
+fastly.net global.ssl.fastly.net edgekey.net akamaized.net akamaihd.net digitaloceanspaces.com
+readthedocs.io gitbook.io bitbucket.io ngrok.io ngrok-free.app repl.co replit.app
+""".split()
+
+
+def _build_public_suffixes() -> frozenset[str]:
+    names = set(GENERIC_TLDS) | set(COUNTRY_TLDS) | set(PRIVATE_SUFFIXES)
+    for cc in COUNTRY_TLDS:
+        names.update(f"{label}.{cc}" for label in COMMON_SECOND_LEVELS)
+        names.update(f"{label}.{cc}" for label in EXTRA_SECOND_LEVELS.get(cc, "").split())
+    names.add("gov.uk")
+    return frozenset(names)
+
+
+PUBLIC_SUFFIXES: frozenset[str] = _build_public_suffixes()
 
 INVENTORY_HEADERS = frozenset({"value", "ip", "ip_or_cidr", "cidr", "network", "asset"})
 
@@ -98,6 +172,16 @@ def _special_overlap(net: ipaddress.IPv4Network, allow_documentation_ranges: boo
         if net.overlaps(block):
             return f"{block} ({name})"
     return None
+
+
+def is_special_purpose(ip: str, allow_documentation_ranges: bool = False) -> bool:
+    """True if the IPv4 address or network `ip` overlaps any special-purpose block. Non-IPv4 input counts as special
+    (fail closed)."""
+    try:
+        net = ipaddress.IPv4Network(str(ip).strip(), strict=False)
+    except ValueError:
+        return True
+    return _special_overlap(net, allow_documentation_ranges) is not None
 
 
 def _parse_ipv4(text: str) -> ipaddress.IPv4Address:

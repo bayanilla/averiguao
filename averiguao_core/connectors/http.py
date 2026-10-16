@@ -14,6 +14,9 @@ Policy, in order of application for each ``get``:
   Other statuses (2xx, 404 and other 4xx) are returned to the caller.
 * Up to 3 redirects (301/302/303/307/308) are followed, only to https URLs on allowed hosts.
 * Bodies are capped at ``max_bytes`` (after gzip decompression too).
+* A Retry-After above 120 s sets the shared cooldown but fails the call at once ("rate_limited_long");
+  a call that finds such a cooldown pending fails the same way without sleeping. One ``get`` never
+  waits more than 300 s in total (cooldowns, spacing, backoff); beyond that it fails "rate_limited".
 * After ``max_retries`` retries, :class:`SourceError` is raised with a short reason (no URLs, no tracebacks).
 
 Testing: ``transport`` replaces the connection factory. It is called as
@@ -42,6 +45,8 @@ from ..contracts import USER_AGENT
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 MAX_REDIRECTS = 3
 DEFAULT_RETRY_AFTER = 30.0
+LONG_COOLDOWN = 120.0        # a Retry-After / pending cooldown above this fails the call instead of sleeping
+MAX_CALL_WAIT = 300.0        # total seconds one get() may spend in cooldowns, rate spacing and backoff
 _STALE_ERRORS = (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError)
 
 
@@ -90,6 +95,15 @@ def parse_retry_after(value: str | None, now_epoch: float) -> float:
     return min(max(seconds, 1.0), 3600.0)
 
 
+class WaitTooLong(Exception):
+    """Raised by RateGate.acquire when the required wait exceeds ``max_wait``."""
+
+    def __init__(self, wait: float, cooldown: float):
+        super().__init__(wait)
+        self.wait = wait
+        self.cooldown = cooldown   # seconds of shared cooldown still pending
+
+
 class RateGate:
     """Spaces request starts by ``1/rate`` across threads and enforces a shared cooldown."""
 
@@ -103,16 +117,21 @@ class RateGate:
         self._next_at = 0.0
         self._cooldown_until = 0.0
 
-    def acquire(self) -> None:
+    def acquire(self, max_wait: float = float("inf")) -> float:
+        """Wait for a slot; return seconds slept. Raise WaitTooLong instead of sleeping past ``max_wait``."""
+        slept = 0.0
         while True:
             with self._lock:
                 now = self._clock()
                 when = max(self._next_at, self._cooldown_until)
                 if now >= when:
                     self._next_at = now + self.interval
-                    return
+                    return slept
                 wait = when - now
+                if slept + wait > max_wait:
+                    raise WaitTooLong(wait, max(0.0, self._cooldown_until - now))
             self._sleep(wait)
+            slept += wait
 
     def cooldown(self, seconds: float) -> None:
         with self._lock:
@@ -250,10 +269,14 @@ class HttpClient:
         current = url
         redirects = 0
         retries = 0
+        waited = 0.0   # per call, local: the client is shared by threads
         while True:
             host, path = self._check_url(current)
             request_headers["Host"] = host
-            self.gate.acquire()
+            try:
+                waited += self.gate.acquire(max_wait=min(LONG_COOLDOWN, MAX_CALL_WAIT - waited))
+            except WaitTooLong as exc:
+                raise SourceError("rate_limited_long" if exc.cooldown > LONG_COOLDOWN else "rate_limited") from None
             try:
                 status, resp_headers, body = self._once(host, path, request_headers)
             except SourceError:
@@ -262,17 +285,20 @@ class HttpClient:
                 raise SourceError("tls_verification_failed") from None
             except (TimeoutError, OSError, http.client.HTTPException) as exc:
                 reason = "timeout" if isinstance(exc, TimeoutError) else "connection_error"
-                retries = self._backoff(retries, reason)
+                retries, waited = self._backoff(retries, waited, reason)
                 continue
 
             if status == 429:
                 if retries >= self.max_retries:
                     raise SourceError("rate_limited")
                 retries += 1
-                self.gate.cooldown(parse_retry_after(resp_headers.get("retry-after"), self._wall_clock()))
+                delay = parse_retry_after(resp_headers.get("retry-after"), self._wall_clock())
+                self.gate.cooldown(delay)   # shared: other threads and later calls back off too
+                if delay > LONG_COOLDOWN:
+                    raise SourceError("rate_limited_long")
                 continue
             if status >= 500:
-                retries = self._backoff(retries, f"http_{status}")
+                retries, waited = self._backoff(retries, waited, f"http_{status}")
                 continue
             if status in REDIRECT_STATUSES:
                 location = resp_headers.get("location")
@@ -290,8 +316,11 @@ class HttpClient:
                 continue
             return HttpResponse(status=status, body=self._decode(body, resp_headers), url=current, headers=resp_headers)
 
-    def _backoff(self, retries: int, reason: str) -> int:
+    def _backoff(self, retries: int, waited: float, reason: str) -> tuple[int, float]:
         if retries >= self.max_retries:
             raise SourceError(reason)
-        self._sleep(float(2 ** retries))
-        return retries + 1
+        delay = float(2 ** retries)
+        if waited + delay > MAX_CALL_WAIT:
+            raise SourceError("rate_limited")
+        self._sleep(delay)
+        return retries + 1, waited + delay

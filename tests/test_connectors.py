@@ -300,6 +300,52 @@ class HttpClientTests(unittest.TestCase):
         self.assertEqual(cm.exception.reason, "rate_limited")
         self.assertEqual(len(server.requests), 3)
 
+    def test_long_retry_after_fails_fast_and_sets_shared_cooldown(self):
+        clock = FakeClock()
+        server = FakeServer(lambda h, p, hd: (429, {"Retry-After": "3600"}, b""))
+        client = client_for(server, clock)
+        with self.assertRaises(SourceError) as cm:
+            client.get("https://a.example/")
+        self.assertEqual(cm.exception.reason, "rate_limited_long")
+        self.assertEqual(len(server.requests), 1)
+        self.assertLess(sum(clock.sleeps), 1)
+        # A later call (any thread) fails fast without sleeping or sending while the cooldown holds.
+        errors = []
+
+        def other():
+            try:
+                client.get("https://a.example/again")
+            except SourceError as exc:
+                errors.append(exc.reason)
+
+        t = threading.Thread(target=other)
+        t.start()
+        t.join()
+        self.assertEqual(errors, ["rate_limited_long"])
+        self.assertEqual(len(server.requests), 1)
+        self.assertLess(sum(clock.sleeps), 1)
+        # Once the cooldown has passed, requests flow again.
+        clock.now += 3600
+        server.handler = lambda h, p, hd: (200, {}, b"ok")
+        self.assertEqual(client.get("https://a.example/").body, b"ok")
+
+    def test_total_wait_per_call_capped(self):
+        clock = FakeClock()
+        server = FakeServer(lambda h, p, hd: (429, {"Retry-After": "100"}, b""))
+        with self.assertRaises(SourceError) as cm:
+            client_for(server, clock, max_retries=10).get("https://a.example/")
+        self.assertEqual(cm.exception.reason, "rate_limited")
+        self.assertLessEqual(sum(clock.sleeps), 300)
+        self.assertEqual(len(server.requests), 4)  # waits 100+100+100, then the 4th 429 would exceed 300 s
+
+    def test_pending_short_cooldown_still_waits(self):
+        clock = FakeClock()
+        server = FakeServer(lambda h, p, hd: (200, {}, b"ok"))
+        client = client_for(server, clock)
+        client.gate.cooldown(90)
+        self.assertEqual(client.get("https://a.example/").body, b"ok")
+        self.assertAlmostEqual(sum(clock.sleeps), 90.0)
+
     def test_rate_gate_spacing(self):
         clock = FakeClock()
         server = FakeServer(lambda h, p, hd: (200, {}, b"ok"))

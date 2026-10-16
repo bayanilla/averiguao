@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from .engine import _cidrs_of, non_global_address
 from .contracts import (Assertion, Asset, Evidence, Finding, InventoryMatch, InventorySnapshot, Relationship,
                         RunConfig)
 from .store import Store
@@ -127,15 +128,8 @@ class _Ctx:
         for e in evidence:
             self.by_query.setdefault((e.source, e.query), []).append(e)
             if e.source == "rdap" and _is_ok(e):
-                nets = []
-                for c in e.data.get("cidrs") or []:
-                    try:
-                        net = ipaddress.ip_network(str(c), strict=False)
-                    except ValueError:
-                        continue
-                    if isinstance(net, ipaddress.IPv4Network):
-                        nets.append(net)
-                self.rdap_ok.append((e, nets))
+                # Same rule as the engine's cache: only cidrs that contain the queried address, no larger than /8.
+                self.rdap_ok.append((e, _cidrs_of(e.data, e.query)))
             if e.source == "dns" and _is_ok(e):
                 self.dns_ok.append(e)
 
@@ -460,6 +454,8 @@ def assess(config: RunConfig, assets: list[dict[str, Any]], relationships: list[
         dns_q = ctx.by_query.get(("dns", a.value), []) if a.type == "hostname" else []
         if any(_status(e) == "no_record" for e in dns_q):
             flags.add("no_resolution")
+        if any(non_global_address(str(x)) for e in dns_q if _is_ok(e) for x in e.data.get("addresses") or []):
+            flags.add("non_global_address")
         ok_evs = [e for e in evs if _is_ok(e) and e.source != "scope"]  # seed approval is not an observation
         observations = [e for e in ok_evs if e.source in ("ct", "dns", "internetdb")]
         if completed is not None and observations:
