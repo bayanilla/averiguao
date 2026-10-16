@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import signal
 import sys
 import threading
@@ -135,11 +136,13 @@ def serve(args: argparse.Namespace) -> int:
         from .connectors import fake
         demo_expected = {key: {"queue": queue, "why": why}
                          for key, (queue, why) in getattr(fake, "DEMO_EXPECTED", {}).items()}
-    server = make_server(store, runner, port=args.port, demo=args.demo, demo_config=demo_config,
+    token = secrets.token_urlsafe(32)  # new each start; keeps other local users and processes out
+    server = make_server(store, runner, port=args.port, token=token, demo=args.demo, demo_config=demo_config,
                          demo_expected=demo_expected)
     port = server.server_address[1]
     note = " (demo: synthetic world, no network)" if args.demo else ""
-    print(f"Múcaro | Averiguao: http://127.0.0.1:{port}/{note}", flush=True)
+    print(f"Múcaro | Averiguao{note}. Open this link (it includes this session's access token):", flush=True)
+    print(f"http://127.0.0.1:{port}/?token={token}", flush=True)
     def stop(signum: int, frame: Any) -> None:
         raise KeyboardInterrupt
 
@@ -206,7 +209,7 @@ def run_headless(args: argparse.Namespace) -> int:
         return 3
     for ext, fn in (("json", reports.json_report), ("csv", reports.csv_report), ("md", reports.markdown_report)):
         path = args.out / reports.report_filename(run_id, ext)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
         os.fchmod(fd, 0o600)  # also tighten a pre-existing file
         with os.fdopen(fd, "wb") as handle:
             for chunk in fn(store, run_id):

@@ -21,13 +21,15 @@ Python 3.10 or later, no third-party packages.
 python3 averiguao.py --demo
 ```
 
-Open the printed `http://127.0.0.1:…` address. Demo mode uses a synthetic "Example Corp" world and a separate database. It shows every queue, plus the traps the scope rules have to resist: a shared certificate naming other customers, other tenants on a shared host, an expired certificate, a CDN and a SaaS status page.
+Open the link it prints (`http://127.0.0.1:…/?token=…`). Demo mode uses a synthetic "Example Corp" world and a separate database. It shows every queue, plus the traps the scope rules have to resist: a shared certificate naming other customers, other tenants on a shared host, an expired certificate, a CDN and a SaaS status page.
 
 ## Run against real sources
 
 ```sh
-python3 averiguao.py                 # web UI on http://127.0.0.1:8767/
+python3 averiguao.py                 # web UI on 127.0.0.1:8767; open the printed link
 ```
+
+The printed link carries a new access token each time the server starts. Without it, the page and the API refuse requests, so other users or programs on the same computer cannot read your findings or start runs.
 
 1. **Inventory baseline.** Import a CSV of `value,label`. A value can be an IPv4 address, a CIDR, an exact hostname, or `*.example.com` for a whole domain tree. Each import is a new, immutable snapshot.
 2. **New run.** Enter one seed per line, an approval reference (who authorized this scope) and the organization's registered names as RDAP shows them (for example `Example Corp, EXAMPLE-1`). Without organization names, address ownership can never be supported. Preview shows the normalized seeds and the estimated query count.
@@ -60,7 +62,22 @@ Shodan describes InternetDB as free for noncommercial use, including within a co
 
 Observations are what a source reported at retrieval time, not live tests. "No record" means the source had nothing, not that an address is unused or safe. A hostname under an approved domain supports ownership of the name, not control of the server it points to. An RDAP registration to a cloud provider means the provider owns the address, not that the organization does not operate the service. Averiguao keeps conflicting evidence visible instead of choosing a winner.
 
-Data lives in `.averiguao/` (ignored by Git). The server listens only on 127.0.0.1 and rejects requests from other origins.
+## What leaves your machine, and what stays
+
+The tool sends only the name or address being looked up, plus a User-Agent naming Averiguao and this repository:
+
+| Service | Receives |
+| --- | --- |
+| crt.sh | Approved domains |
+| Cloudflare DNS-over-HTTPS | In-scope hostnames |
+| rdap.org, and the regional registry it redirects to | Discovered addresses |
+| Shodan InternetDB | Discovered addresses and every address of a prefix seed |
+
+Each of these services, and anyone between you and them, can see which names and addresses you investigated and your public IP address.
+
+Your inventory, organization names, approval references and findings are never sent anywhere. Addresses in private or reserved space are never sent either.
+
+Everything stays in `.averiguao/` (ignored by Git), which is created owner-only, with the database files readable only by you. Headless reports are written owner-only too. The server listens only on 127.0.0.1. It requires the access token and rejects requests from other origins and hostnames. It has no third-party Python dependencies and never runs commands or loads code from what it downloads.
 
 ## Develop
 
