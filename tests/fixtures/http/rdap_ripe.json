@@ -1,0 +1,8 @@
+{"handle":"203.0.113.0 - 203.0.113.127","startAddress":"203.0.113.0","endAddress":"203.0.113.127","ipVersion":"v4","name":"EXAMPLE-EU-NET","type":"ASSIGNED PA","country":"nl","parentHandle":"203.0.0.0 - 203.0.255.255",
+"entities":[{"handle":"ORG-EXA1-RIPE","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Example B.V."],["kind",{},"text","org"],["org",{},"text","Example B.V."]]],"roles":["registrant"],"objectClassName":"entity"},
+{"handle":"EXA-RIPE","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Example Admin"],["kind",{},"text","group"]]],"roles":["administrative","technical"],"objectClassName":"entity"},
+{"handle":"AR123-RIPE","vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Abuse-C Role"],["kind",{},"text","group"]]],"roles":["abuse"],"objectClassName":"entity"},
+{"handle":"EXAMPLE-MNT","roles":["registrant"],"objectClassName":"entity"}],
+"links":[{"value":"https://rdap.db.ripe.net/ip/203.0.113.7","rel":"self","href":"https://rdap.db.ripe.net/ip/203.0.113.0/25"}],
+"events":[{"eventAction":"registration","eventDate":"2015-03-10T11:20:49Z"},{"eventAction":"last changed","eventDate":"2021-11-02T08:01:00.123Z"}],
+"rdapConformance":["nro_rdap_profile_0","rdap_level_0"],"notices":[],"port43":"whois.ripe.net","objectClassName":"ip network"}

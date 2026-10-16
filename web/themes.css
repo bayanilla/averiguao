@@ -1,3 +1,4 @@
+/* Seven colour themes. Each defines the same tokens; style.css only uses these variables. */
 :root[data-theme="soc"] { --bg:#101415; --surface:#141a1c; --raised:#252e30; --hover:#354246; --border:#333c3e; --border-strong:#435053; --border-subtle:#30393b; --text:#e9eeee; --text-strong:#c9dddd; --label:#bccacb; --detail:#b9caca; --secondary:#afc0c2; --muted:#9eafb1; --accent:#b8c4c7; --accent-hover:#d7e0e2; --action:#536166; --action-border:#738287; --action-hover:#65747a; --warning:#efd384; --danger:#ffb7ae; --error:#ff8f83; --success:#37e5a8; --focus:#f4f7f7; --map-item:#334143; --map-land:#202d2f; --map-stroke:#425154; --map-active:#2a4444; --dialog:#182425; --spinner:#526260; --button-text:#eff5f4; --action-text:#e7f2ef; }
 :root[data-theme="nord"] { --bg:#2e3440; --surface:#3b4252; --raised:#434c5e; --hover:#4c566a; --border:#4c566a; --border-strong:#5b667a; --border-subtle:#3a4352; --text:#eceff4; --text-strong:#e5e9f0; --label:#d8dee9; --detail:#d8dee9; --secondary:#c5cdd8; --muted:#b4bfce; --accent:#88c0d0; --accent-hover:#a3d5e2; --action:#4c6f7b; --action-border:#6c9eaa; --action-hover:#5f8491; --warning:#ebcb8b; --danger:#bf616a; --error:#d08770; --success:#a3be8c; --focus:#eceff4; --map-item:#4c566a; --map-land:#3b4252; --map-stroke:#65758b; --map-active:#4c6f7b; --dialog:#353e4d; --spinner:#718096; --button-text:#eceff4; --action-text:#edf5f7; }
 :root[data-theme="contrast"] { --bg:#000; --surface:#080808; --raised:#171717; --hover:#303030; --border:#777; --border-strong:#aaa; --border-subtle:#555; --text:#fff; --text-strong:#fff; --label:#fff; --detail:#fff; --secondary:#e5e5e5; --muted:#d0d0d0; --accent:#62bfb0; --accent-hover:#8fd6ca; --action:#245f57; --action-border:#62bfb0; --action-hover:#31786e; --warning:#ffdf00; --danger:#ff8f8f; --error:#ff5959; --success:#00ff76; --focus:#fff; --map-item:#333; --map-land:#151515; --map-stroke:#bbb; --map-active:#004b3d; --dialog:#111; --spinner:#ddd; --button-text:#fff; --action-text:#fff; }
@@ -5,41 +6,3 @@
 :root[data-theme="mucaro"] { --bg:#102333; --surface:#142d3e; --raised:#1c3a4d; --hover:#294c60; --border:#36596c; --border-strong:#4c7183; --border-subtle:#29495b; --text:#f1f5ef; --text-strong:#f5f8f1; --label:#d5e6df; --detail:#cfe2dc; --secondary:#b8d0c8; --muted:#9fbab3; --accent:#42d6bd; --accent-hover:#8cf2db; --action:#236b64; --action-border:#42d6bd; --action-hover:#2c837b; --warning:#f4bd61; --danger:#f18a7b; --error:#f18a7b; --success:#4de2a5; --focus:#f1f5ef; --map-item:#315d69; --map-land:#183c4c; --map-stroke:#5b8491; --map-active:#276e70; --dialog:#173548; --spinner:#78aeb0; --button-text:#f1f5ef; --action-text:#effdf8; }
 :root[data-theme="notebook"] { color-scheme:light; --bg:#f3eee3; --surface:#fffaf0; --raised:#ebe1cc; --hover:#dfd0b6; --border:#9a8b72; --border-strong:#766850; --border-subtle:#cbbda5; --text:#1f2b30; --text-strong:#172125; --label:#31434a; --detail:#31434a; --secondary:#53676a; --muted:#68797a; --accent:#006d77; --accent-hover:#168a92; --action:#1d6270; --action-border:#1d6270; --action-hover:#154b56; --warning:#a15c00; --danger:#9b302a; --error:#ad3127; --success:#24734e; --focus:#1f2b30; --map-item:#d8c9af; --map-land:#ebe2d2; --map-stroke:#9a8b72; --map-active:#c6ddd5; --dialog:#fffaf0; --spinner:#76847b; --button-text:#1f2b30; --action-text:#fffdf7; }
 :root[data-theme="amber"] { --bg:#0d0a04; --surface:#151006; --raised:#241b0a; --hover:#382a0c; --border:#664a14; --border-strong:#8f681d; --border-subtle:#4a350e; --text:#ffe9b0; --text-strong:#fff2cf; --label:#f8d98c; --detail:#f8d98c; --secondary:#d8b969; --muted:#bda265; --accent:#ffb000; --accent-hover:#ffcd57; --action:#7b4b00; --action-border:#c98300; --action-hover:#965c00; --warning:#ffe075; --danger:#ff9370; --error:#ff9370; --success:#cbe75a; --focus:#fff2cf; --map-item:#593e0b; --map-land:#251b08; --map-stroke:#865e16; --map-active:#6e5010; --dialog:#1d1506; --spinner:#c8932c; --button-text:#fff2cf; --action-text:#fff8e6; }
-
-:root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); color-scheme: dark; }
-:root[data-theme="notebook"] { color-scheme: light; }
-body { background: var(--bg); color: var(--text); }
-.site-header { background: var(--surface); border-color: var(--border); }
-.brand { letter-spacing: 0; }
-.brand-mark { width: 34px; height: 34px; border-radius: 8px; }
-.brand-divider { color: var(--muted); font-weight: 400; }
-.brand small { border: 0; margin: 0; padding: 0; font-size: 19px; font-weight: 400; color: var(--secondary); }
-.header-tools { display: flex; align-items: center; gap: 10px; }
-.header-tools label { font-size: 12px; color: var(--muted); }
-.header-tools select { max-width: 160px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--raised); color: var(--text); padding: 8px 10px; font: inherit; font-size: 12px; }
-.badge { color: var(--secondary); background: var(--raised); border-color: var(--border); }
-.intro h1, .results-top h2, .empty-state strong, .job-item strong { color: var(--text-strong); }
-.intro>p:last-child, .hint, .subtle, .pagination, .empty-state, .progress-meta, footer, .stat-label, .job-item small, .detail dt { color: var(--muted); }
-.eyebrow, .preview strong, td:first-child, .step { color: var(--accent); }
-.card { background: var(--surface); border-color: var(--border); box-shadow: none; }
-.card label { color: var(--label); }
-button, .button-link { background: var(--accent); color: var(--bg); }
-button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.secondary, .details-button, .button-link, .pagination button { background: var(--raised); color: var(--text); border: 1px solid var(--border-strong); }
-.step { background: var(--raised); }
-.card input[type=text], .card textarea, .card input[type=file] { background: var(--raised); color: var(--text); border-color: var(--border-strong); }
-.card input:focus, .card textarea:focus { outline-color: var(--focus); }
-.preview, .stats>div, .job-item, .detail { background: var(--raised); border-color: var(--border); color: var(--text); }
-.job-item.selected { border-color: var(--accent); background: var(--hover); }
-.progress-line { background: var(--raised); }
-.progress-line>div { background: var(--accent); }
-.warning { background: var(--raised); border-color: var(--warning); color: var(--warning); }
-.table-wrap { border: 1px solid var(--border); border-radius: 8px; }
-th { background: var(--raised); color: var(--secondary); }
-th, td { border-bottom-color: var(--border); }
-.pill { background: var(--raised); color: var(--secondary); border: 1px solid var(--border); }
-.pill.known { background: var(--raised); color: var(--success); }
-.pill.unaccounted { background: var(--raised); color: var(--warning); }
-.empty-icon { color: var(--accent); }
-@media (max-width: 750px) { .site-header { height: auto; min-height: 72px; gap: 16px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; } .brand small { font-size: 16px; display: inline; } .header-tools { margin-left: 44px; } }
-@media (max-width: 600px) { .header-tools { margin-left: 0; } .brand { font-size: 17px; } .brand small { font-size: 17px; } }

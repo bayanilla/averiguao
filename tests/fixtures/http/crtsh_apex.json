@@ -1,0 +1,2 @@
+[{"issuer_ca_id":183267,"issuer_name":"C=US, O=Let's Encrypt, CN=R3","common_name":"www.example.com","name_value":"example.com\nwww.example.com","id":9876543210,"entry_timestamp":"2024-03-01T10:12:13.456","not_before":"2024-03-01T09:12:13","not_after":"2024-05-30T09:12:12","serial_number":"04abcdef"},
+{"issuer_ca_id":295815,"issuer_name":"C=US, O=Google Trust Services, CN=WR1","common_name":"example.com","name_value":"example.com","id":42,"entry_timestamp":"2025-02-02T02:02:02.2","not_before":"2025-02-02T01:00:00","not_after":"2025-05-03T01:00:00","serial_number":"ff"}]
